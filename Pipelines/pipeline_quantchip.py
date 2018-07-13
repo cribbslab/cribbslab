@@ -12,6 +12,7 @@ Requires:
  * filtered bam file and an associated index
  * A bed file containing regions of interest (i.e. TSS regions). This file should be placed in
    a folder called Bed.dir/
+ * a design file named design.tsv which names the control, treatment and input bam files
 
 Pipeline output
 ===============
@@ -33,6 +34,7 @@ import CGAT.BamTools.bamtools as Bamtools
 import CGATCore.Pipeline as P
 import CGATPipelines.PipelineMapping as PipelineMapping
 import CGATPipelines.PipelinePeakcalling as PipelinePeakcalling
+import ModuleQuantchip as ModuleQuantchip
 
 # load options from the config file
 PARAMS = P.get_parameters(
@@ -40,57 +42,27 @@ PARAMS = P.get_parameters(
      "../pipeline.yml",
      "pipeline.yml"])
 
-# add configuration values from associated pipelines
-#
-# 1. pipeline_annotations: any parameters will be added with the
-#    prefix "annotations_". The interface will be updated with
-#    "annotations_dir" to point to the absolute path names.
 
-# Helper functions mapping tracks to conditions, etc
-# determine the location of the input files (reads).
-try:
-    PARAMS["input"]
-except NameError:
-    DATADIR = "."
+##################################################################
+# Load the design file into pipeline 
+##################################################################
+
+
+### IN FUTURE ALL REFERENCES TO PIPELINE PEAKCALLING NEED TO BE REMOVED
+
+if os.path.exists("design.tsv"):
+    df = ModuleQuantchip.read_design_table("design.tsv")
+    
+    CONTROLBAMS = list(set(df["Control"].values))
+    TREATMENTBAMS = list(set(df["Treatment"].values))
+    INPUTBAMS = list(set(df["Input"].values))
 else:
-    if PARAMS["input"] == 0:
-        DATADIR = "."
-    elif PARAMS["input"] == 1:
-        DATADIR = "data.dir"
-    else:
-        DATADIR = PARAMS["input"]  # not recommended practise.
-
-# if necessary, update the PARAMS dictionary in any modules file.
-# e.g.:
-#
-# import CGATPipelines.PipelineGeneset as PipelineGeneset
-# PipelineGeneset.PARAMS = PARAMS
-#
-# Note that this is a hack and deprecated, better pass all
-# parameters that are needed by a function explicitely.
-
-# -----------------------------------------------
-# Utility functions
-def connect():
-    '''utility function to connect to database.
-
-    Use this method to connect to the pipeline database.
-    Additional databases can be attached here as well.
-
-    Returns an sqlite3 database handle.
-    '''
-
-    dbh = sqlite3.connect(PARAMS["database_name"])
-    statement = '''ATTACH DATABASE '%s' as annotations''' % (
-        PARAMS["annotations_database"])
-    cc = dbh.cursor()
-    cc.execute(statement)
-    cc.close()
-
-    return dbh
+    E.warn("design.tsv is not present within the folder")
 
 
-SEQUENCEFILES = tuple([os.path.join(DATADIR, "*.bam")])
+
+
+SEQUENCEFILES = tuple([os.path.join(".", "*.bam")])
 BEDFILES = tuple([os.path.join("Bed.dir", "*.bed")])
 SEQUENCEFILES_REGEX = regex(
     r"(\S+).(bam)")
@@ -205,10 +177,35 @@ def annotatePeaksBed(infiles, outfile):
                 '''
 
     P.run(statement)
+
+@follows(annotatePeaksBed)
+@transform(CONTROLBAMS,
+           regex("(\S+).bam"),
+           add_inputs(df),
+           r"Hist.dir/\1.eps")
+def plot_hist(infile, dataframe, outfile):
+    """
+    This function will plot a histogram using the Coverageplot.R
+    script
+    """
+
+    control = infile
+    
+    treatment, inputD = ModuleQuantchip.extract_bam_files(dataframe, control)
+
+    
+    statement = """ Rscript %(cribbslab)s/R/CoveragePlot.R
+                --control=%(control)s
+                --treatment=%(treatment)s
+                --input=%(inputD)s
+                """
+
+    P.run(statement)
+
 # ---------------------------------------------------
 # Generic pipeline tasks
 @follows(getIdxstats,buildBedGraph, makeTagDirectory,
-         annotatePeaksBed)
+         annotatePeaksBed, plot_hist)
 def full():
     pass
 

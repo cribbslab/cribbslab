@@ -7,6 +7,9 @@
 #
 ################################################################
 
+# Location of the cribbslab directory
+cribbslab: '/ifs/projects/adam/cribbslab/'
+
 # Project name
 projectname: proj001
 
