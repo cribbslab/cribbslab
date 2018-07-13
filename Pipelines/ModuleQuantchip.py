@@ -36,3 +36,32 @@ def extract_bam_files(dataframe, control):
     inputD = inputD.replace(".bam", ".txt")
 
     return(control, treatment, inputD)
+
+def getSpikeInReads(idx, regex):
+
+    idx_file = pd.read_csv(idx, "\t",
+                           header=None,
+                           names=["Name", "Length", "Mapped", "Unmapped"])
+
+    spikes = idx_file[idx_file.Name.str.match(regex)]
+    spikes = spikes.Mapped.sum()
+
+    mapped_reads = idx_file[-idx_file.Name.str.match(regex)]
+    mapped_reads = mapped_reads.Mapped.sum()
+
+    scale = spikes/mapped_reads
+
+    return scale
+
+def getContigSizes(idx):
+    idx_file = pd.read_csv(idx, "\t",
+                           header=None,
+                           names=["Name", "Length", "Mapped", "Unmapped"])
+
+    contigs = idx_file[['Name', 'Length']]
+
+    contig_file = idx.replace(".idxstats", ".contig")
+
+    contigs.to_csv(contig_file, sep="\t", header=None, index=None)
+
+    return contig_file

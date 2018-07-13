@@ -32,8 +32,6 @@ import sqlite3
 import CGATCore.Experiment as E
 import CGAT.BamTools.bamtools as Bamtools
 import CGATCore.Pipeline as P
-import CGATPipelines.PipelineMapping as PipelineMapping
-import CGATPipelines.PipelinePeakcalling as PipelinePeakcalling
 import ModuleQuantchip as ModuleQuantchip
 
 # load options from the config file
@@ -119,8 +117,8 @@ def buildBedGraph(infile, outfile):
             # pass to a function that extracts the number of reads aligned to
             # spike in and human genome
             regex = PARAMS['quant_regex'] + "*"
-            scale = PipelinePeakcalling.getSpikeInReads(idx, str(regex))
-            contig_sizes = PipelinePeakcalling.getContigSizes(idx)
+            scale = ModuleQuantchip.getSpikeInReads(idx, str(regex))
+            contig_sizes = ModuleQuantchip.getContigSizes(idx)
         else:
             continue
 
