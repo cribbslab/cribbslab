@@ -1,28 +1,22 @@
 """===========================
-Pipeline template
+Pipeline quantchip
 ===========================
-
-.. Replace the documentation below with your own description of the
-   pipeline's purpose
 
 Overview
 ========
 
 This pipeline was written to convert a bamfile from a quant_chip experiment into a homer tag file that can
-be processed and normalised using SP1 spike ins. 
+be processed and normalised using spike ins specified as a regex in the yml file. 
 
-Required a filtered bam file
+Requires:
+ * filtered bam file and an associated index
+ * A bed file containing regions of interest (i.e. TSS regions). This file should be placed in
+   a folder called Bed.dir/
 
 Pipeline output
 ===============
 
-.. Describe output files of the pipeline here
-
-Glossary
-========
-
-.. glossary::
-
+The output is a series of annotaed peak outfup files from homer that can be plotted using an R script (still in development)
 
 Code
 ====
@@ -191,24 +185,6 @@ def makeTagDirectory(infile, outfile):
 
     P.run(statement)
 
-@follows(mkdir("Hist.dir"))
-@transform(makeTagDirectory,
-           regex("\S+/(\S+).txt"),
-           r"Hist.dir/\1.txt")
-def annotatePeaks(infile, outfile):
-
-    '''
-    This will create a histogram txt output of the data centred on tss
-    '''
-    infile = os.path.basename(infile)
-    infile = infile.replace(".txt", "")
-
-    statement = '''
-                annotatePeaks.pl tss hg19 -d %(infile)s -hist 50 > %(outfile)s
-                '''
-
-    P.run(statement)
-
 @transform(makeTagDirectory,
            regex("\S+/(\S+).txt"),
            add_inputs([BEDFILES]),
@@ -225,14 +201,14 @@ def annotatePeaksBed(infiles, outfile):
 
     bedfile = infiles[1][0][0]
     statement = '''
-                annotatePeaks.pl %(bedfile)s hg19 -d %(infile)s -size 4000 -hist 50 > %(outfile)s
+                annotatePeaks.pl %(bedfile)s hg19 -d %(infile)s %(homer_options)s  > %(outfile)s
                 '''
 
     P.run(statement)
 # ---------------------------------------------------
 # Generic pipeline tasks
 @follows(getIdxstats,buildBedGraph, makeTagDirectory,
-         annotatePeaks, annotatePeaksBed)
+         annotatePeaksBed)
 def full():
     pass
 
