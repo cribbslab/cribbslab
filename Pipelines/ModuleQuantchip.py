@@ -25,11 +25,14 @@ def extract_bam_files(dataframe, control):
     extracts the corresponding Treatment and Input from the Control
     name.
     """
-
-    df = dataframe
+    df = pd.read_csv(dataframe, sep="\t")
 
     df = df.set_index('Control')
     treatment = df.loc[control]["Treatment"]
     inputD = df.loc[control]["Input"]
 
-    return(treatment, inputD)
+    control = control.replace(".bam", ".txt")
+    treatment = treatment.replace(".bam", ".txt")
+    inputD = inputD.replace(".bam", ".txt")
+
+    return(control, treatment, inputD)

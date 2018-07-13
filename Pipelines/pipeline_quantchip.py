@@ -160,7 +160,7 @@ def makeTagDirectory(infile, outfile):
 @transform(makeTagDirectory,
            regex("\S+/(\S+).txt"),
            add_inputs([BEDFILES]),
-           r"Hist.dir/\1_total.txt")
+           r"Hist.dir/\1.txt")
 def annotatePeaksBed(infiles, outfile):
 
     '''
@@ -181,23 +181,22 @@ def annotatePeaksBed(infiles, outfile):
 @follows(annotatePeaksBed)
 @transform(CONTROLBAMS,
            regex("(\S+).bam"),
-           add_inputs(df),
            r"Hist.dir/\1.eps")
-def plot_hist(infile, dataframe, outfile):
+def plot_hist(infile, outfile):
     """
     This function will plot a histogram using the Coverageplot.R
     script
     """
 
     control = infile
-    
-    treatment, inputD = ModuleQuantchip.extract_bam_files(dataframe, control)
+    dataframe = "design.tsv"
 
-    
+    control, treatment, inputD = ModuleQuantchip.extract_bam_files(dataframe, control)
+
     statement = """ Rscript %(cribbslab)s/R/CoveragePlot.R
-                --control=%(control)s
-                --treatment=%(treatment)s
-                --input=%(inputD)s
+                --control=Hist.dir/%(control)s
+                --treatment=Hist.dir/%(treatment)s
+                --input=Hist.dir/%(inputD)s
                 """
 
     P.run(statement)
