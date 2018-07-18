@@ -1,0 +1,40 @@
+################################################################
+#
+# Pipeline pipeline_quantchip.py configuration file
+#
+# This pipeline.yml file lists some configuration options that you
+# need to set before running the pipeline 
+#
+################################################################
+
+# Location of the cribbslab directory
+cribbslab: '/ifs/projects/adam/cribbslab/'
+
+# Project name
+projectname: proj001
+
+# Copyright statement
+copyright: Cribbs Group, Botnar Research Centre (2018)
+
+
+########################################################
+# the genome to use (UCSC convention)
+########################################################
+
+genome: hg19
+
+
+##########################################################
+# specifying the regex to pick up the spike in reads
+##########################################################
+
+quant:
+    regex: sf9
+
+
+###########################################################
+# Options for running homers annotatePeaks
+###########################################################
+
+homer:
+    options: '-size 4000 -hist 50'

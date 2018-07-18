@@ -1,0 +1,37 @@
+################################################################
+#
+# Pipeline pipeline_trna.py configuration file
+#
+# This pipeline.yml file lists some configuration options that you
+# need to set before running the pipeline 
+#
+################################################################
+
+# Location of the cribbslab directory
+cribbslab: '/ifs/projects/adam/cribbslab/'
+
+# Project name
+projectname: proj001
+
+# Copyright statement
+copyright: Cribbs Group, Botnar Research Centre (2018)
+
+
+########################################################
+# the genome to use (UCSC convention)
+########################################################
+
+genome: hg19
+
+
+##########################################################
+# 
+##########################################################
+
+:
+    : 
+
+
+###########################################################
+# 
+###########################################################
