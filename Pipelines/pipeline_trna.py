@@ -233,6 +233,8 @@ def trna_scan_nuc(outfile):
     statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
 
 # Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
+# Also the indexing of the genome is also quite time consuming so maybe have this paramaterisable to users can
+# specify if they have already indexed the genome previously.
     job_memory = "50G"
 
     P.run(statement)
@@ -277,7 +279,7 @@ def mask_trna_genomic(infiles, outfile):
 
 
 @transform(mask_trna_genomic,
-           suffix(".fa"),
+           suffix("_masked.fa"),
            add_inputs(trna_scan_mito),
            "_artificial.fa")
 def create_pre_trna(infiles, outfile):
@@ -358,15 +360,71 @@ def index_trna_cluster(infile, outfile):
 
     P.run(statement)
 
-
-@transform()
-def pre_mapping_artificial(infile, outfile):
+@transform(process_reads,
+           regex("processed.dir/(\S+)_processed.fastq.gz"),
+           add_inputs(create_pre_trna),
+           r"\1.sam")
+def pre_mapping_artificial(infiles, outfile):
     """pre-mapping of reads against the artificial genome"""
+
+    fastq, pre_trna = infiles
+
+    no_match_fastq = fastq.replace(".fastq.gz","_unmatched.fastq")
+    no_match_fastq = fastq.replace("processed.dir/","")
+
+    index = pre_trna.replace(".fa", ".idx")
+
+
+    statement = """segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 80
+                   --index %(index)s --database %(pre_trna)s --nomatchfilename tRNA-mapping.dir/%(no_match_fastq)s
+                   --query %(fastq)s -o %(outfile)s 2> tRNA-mapping.dir/%(no_match_fastq)s.log &&
+                   gzip tRNA-mapping.dir/%(no_match_fastq)s &&
+                   """
+
+
+    job_memory = "80G"
+    P.run(statement)
+
+
+@follows(pre_mapping_artificial,
+         suffix(".sam"),
+         "_filtered.sam")
+def remove_reads(infile, outfile):
+    """remove all of the reads mapping at least once to the genome"""
+
+    genome_name = PARAMS['genome']
+    
+    statement = """perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(infile)s %(outfile)s"""
+
+    P.run(statement)
+
+@follows(remove_reads,
+         suffix(".sam"),
+         add_inputs(trna_scan_mito),
+         ".fastq")
+def keep_mature_trna(infiles, outfile):
+    """remove pre-tRNA reads, keep only mature tRNA reads"""
+
+    samfile, bedfile = infiles
+    bedfile = bedfile.replace(".bed12", "")
+    
+
+    statement = """perl %(cribbslab)s/perl/removePrecursor.pl  %(bedfile)s_pre-tRNAs.bed12 %(infile)s > %(outfile)s &&
+                   gzip %(outfile)s"""
+
+    P.run(statement)
+
+
+#################################################
+# Post processing of mapping data
+#################################################
+@follows()
+def post_mapping_cluster(infile, outfile):
+    """post mapping against the e cluster tRNAs """
 
     statement = """ """
 
     P.run(statement)
-
 
 def main(argv=None):
     if argv is None:
