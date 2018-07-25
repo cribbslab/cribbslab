@@ -16,6 +16,8 @@ Requires:
  * a bowtie2 indexed genome
  * ensembl gtf: can be downloaded from 
 
+segemehl is quite a slow mapper in comparrison to others. However it improves the quality of the tRNA alignment
+
 Pipeline output
 ===============
 
@@ -342,7 +344,7 @@ def mature_trna_cluster(infile, outfile):
 
 @transform(mature_trna_cluster,
            suffix(".fa"),
-           "")
+           ".idx")
 def index_trna_cluster(infile, outfile):
     """index tRNA clusters"""
 
@@ -418,13 +420,74 @@ def keep_mature_trna(infiles, outfile):
 #################################################
 # Post processing of mapping data
 #################################################
-@follows()
-def post_mapping_cluster(infile, outfile):
-    """post mapping against the e cluster tRNAs """
+@transform(process_reads,
+           regex("processed.dir/(\S+)_processed.fastq.gz"),
+           add_inputs(mature_trna_cluster, index_trna_cluster),
+           r"\1.bam")
+def post_mapping_cluster(infiles, outfile):
+    """post mapping against the cluster tRNAs """
 
-    statement = """ """
+    fastqfile, database, trna_cluster = infiles
+
+    no_match_fastq = fastq.replace(".fastq.gz","_unmatched_cluster.fastq")
+    no_match_fastq = fastq.replace("processed.dir/","")
+
+    temp_file = P.get_temp_filename(".")
+
+    statement = """segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 85 --index %(trna_cluster)s
+                   --database %(database)s --nomatchfilename %(no_match_fastq)s --query %(fastqfile)s | samtools view -bS |
+                   samtools sort -T %(temp_file)s -o %(outfile)s &&
+                   gzip %(no_match_fastq)s"""
 
     P.run(statement)
+    os.unlink(temp_file)
+
+@transform(post_mapping_cluster,
+           suffix(".bam"),
+           ".bai")
+def prep_index_rearrange(infile, outfile):
+    """preparing bam file for indel realignment"""
+
+    job_memory = "4G"
+    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
+    job_threads = 3
+
+    statement = """samtools index %(infile)s &&
+                   picard %(picard_opts)s BuildBamIndex I=%(infile)s O=%(outfile)s"""
+
+    P.run(statement)
+
+@follows(prep_index_rearrange)
+@transform(post_mapping_cluster,
+           suffix(".bam"),
+           ".mod.bam")
+def add_readgroups(infile, outfile):
+    """add read groups to bam file"""
+
+    job_memory = "4G"
+    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
+    job_threads = 3
+
+    statement = """picard %(picard_opts)s AddOrReplaceReadGroups I=%(infile)s O=%(outfile)s RGPL=RNASeqReadSimulator RGLB=Simlib RGPU=unit1 RGSM=36bam"""
+
+    P.run(statement)
+
+@transform(add_readgroups,
+           suffix(".mod.bam"),
+           ".mod.bai")
+def index_modified_bam(infile, outfile):
+    """idex the modified bam file """
+
+    job_memory = "4G"
+    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
+    job_threads = 3
+
+    statement = """samtools index %(infile)s &&
+                   picard %(picard_opts)s BuildBamIndex I=%(infile)s O=%(outfile)s"""
+
+    P.run(statement)
+
+
 
 def main(argv=None):
     if argv is None:
