@@ -230,16 +230,20 @@ def trna_scan_nuc(outfile):
 
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
-    statement = "tRNAscan-SE -E -o %(outfile)s %(genome)s"
-# Need to modify if working with non eukaryotic organisms - -E to -U
+    statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
+
+# Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
+    job_memory = "50G"
+
     P.run(statement)
 
 
 @transform(trna_scan_nuc,
-           suffix(".csv"),
-           "tRNA-mapping.dir/tRNAscan.bed")
+           regex("tRNA-mapping.dir/(\S+).nuc.csv"),
+           r"tRNA-mapping.dir/\1.bed12")
 def trna_scan_mito(infile, outfile):
-    """Scans genome using tRNAscanSE to identify mitochrondrial tRNA"""
+    """Scans genome using tRNAscanSE to identify mitochrondrial tRNA then outputs
+    a bed file of that."""
 
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
@@ -247,25 +251,119 @@ def trna_scan_mito(infile, outfile):
 
     statement = """
                 cat %(genome)s | perl -lane 'BEGIN{$c=0;}if(m/^>chrM$/){$c=1}elsif(m/^>/){$c=0;}print if $c' > %(tmp_genome)s &&
-                tRNAscan-SE -O -o tRNA-mapping.dir/tRNAscan.chrM.csv %(tmp_genome)s &&
+                tRNAscan-SE -q -O  %(tmp_genome)s | sed 1,3d > tRNA-mapping.dir/tRNAscan.chrM.csv &&
                 grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
-                cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv
+                cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
+                perl %(cribbslab)s/perl/tRNAscan2bed12.pl tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
                 """
     # add onversion for csv to bed file
     P.run(statement)
     os.unlink(tmp_genome)
 
-
-@transform(trna_scan_mito,
-           regex("(\S+).csv"),
-           r"\1")
-def mask_trna_genomic(infile, outfile):
+@transform(os.path.join(PARAMS["genome_dir"],
+                            PARAMS["genome"] + ".fa"),
+           regex("\S+/([\w_]+[\d_]+).fa"),
+           add_inputs(trna_scan_mito),
+           r"\1_masked.fa")
+def mask_trna_genomic(infiles, outfile):
     """use sam tools to mask fasta ing bedtools """
 
+    genome, bedfile = infiles
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
-    masked =  os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".masked.fa")
 
-    statement = """bedtools maskfasta -fi %(genome)s -fo %(masked)s -mc N -bed %(infile)s"""
+    statement = """bedtools maskfasta -fi %(genome)s -fo %(outfile)s -mc N -bed %(bedfile)s"""
+
+    P.run(statement)
+
+
+@transform(mask_trna_genomic,
+           suffix(".fa"),
+           add_inputs(trna_scan_mito),
+           "_artificial.fa")
+def create_pre_trna(infiles, outfile):
+    """create pre-tRNA library and then index genome and build segemehl indexes"""
+
+    genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
+    genome_name = PARAMS['genome']
+
+    masked_genome, bedfile = infiles
+
+    bedfile = bedfile.replace(".bed12", "")
+
+    statement = """
+                perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s.bed12 %(bedfile)s_pre-tRNAs.bed12 &&
+                bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile)s_pre-tRNAs.bed12 -fo %(genome_name)s_pre-tRNAs.fa &&
+                cat %(masked_genome)s %(genome_name)s_pre-tRNAs.fa > %(genome_name)s_artificial.fa &&
+                samtools faidx %(genome_name)s_artificial.fa &&
+                segemehl.x -x %(genome_name)s_artificial.idx -d %(genome_name)s_artificial.fa 2> segemehl.log
+                """
+
+    job_memory = "80G"
+    P.run(statement)
+
+@transform(os.path.join(PARAMS["genome_dir"],
+                            PARAMS["genome"] + ".fa"),
+           regex("\S+/([\w_]+[\d_]+).fa"),
+           add_inputs(trna_scan_mito),
+           r"\1.fa")
+def create_mature_trna(infiles,outfile):
+    """will create a library of mature tRNAs
+    - remove introns and make fasta from bed12"""
+
+    masked_genome, bedfile = infiles
+
+    statement = """bedtools getfasta -name -split -s -fi %(masked_genome)s -bed %(bedfile)s -fo %(outfile)s"""
+
+    P.run(statement)
+
+@transform(create_mature_trna,
+           suffix(".fa"),
+           "_mature.fa")
+def add_cca_tail(infile, outfile):
+    """add CCA tail to the RNA chromosomes and remove pseudogenes"""
+
+    statement = """perl %(cribbslab)s/perl/addCCA.pl %(infile)s %(outfile)s"""
+
+    P.run(statement)
+
+@transform(add_cca_tail,
+           suffix("_mature.fa"),
+           "_cluster.fa")
+def mature_trna_cluster(infile, outfile):
+    """mature tRNA clustering - only identical tRNAs are clustered"""
+
+    cluster_info = outfile.replace("_cluster.fa","_clusterInfo.fa")
+
+    statement = "perl %(cribbslab)s/perl/clustering.pl %(infile)s %(outfile)s %(cluster_info)s"
+
+    P.run(statement)
+
+@transform(mature_trna_cluster,
+           suffix(".fa"),
+           "")
+def index_trna_cluster(infile, outfile):
+    """index tRNA clusters"""
+
+    cluster_index = infile.replace("fa","idx")
+    cluster_dict = infile.replace("fa","dict")
+
+    job_memory = "4G"
+    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
+    job_threads = 3
+
+    statement = """samtools faidx %(infile)s &&
+                   segemehl.x -x %(cluster_index)s -d %(infile)s 2> segemehl_cluster.log &&
+                   picard %(picard_opts)s CreateSequenceDictionary R=%(infile)s O=%(cluster_dict)s"""
+
+
+    P.run(statement)
+
+
+@transform()
+def pre_mapping_artificial(infile, outfile):
+    """pre-mapping of reads against the artificial genome"""
+
+    statement = """ """
 
     P.run(statement)
 
