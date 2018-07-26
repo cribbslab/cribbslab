@@ -147,7 +147,7 @@ def downsample_fastq(infile, outfile):
     """
 
     statement = """
-                seqtk sample -s100 %(infile)s 500000 > %(outfile)s
+                seqtk sample -s100 %(infile)s 500000 | gzip > %(outfile)s
                 """
 
     P.run(statement)
@@ -362,8 +362,8 @@ def index_trna_cluster(infile, outfile):
 
     P.run(statement)
 
-@transform(process_reads,
-           regex("processed.dir/(\S+)_processed.fastq.gz"),
+@transform(downsample_fastq,
+           regex("downsample.dir/(\S+).fastq.gz"),
            add_inputs(create_pre_trna),
            r"\1.sam")
 def pre_mapping_artificial(infiles, outfile):
@@ -372,15 +372,14 @@ def pre_mapping_artificial(infiles, outfile):
     fastq, pre_trna = infiles
 
     no_match_fastq = fastq.replace(".fastq.gz","_unmatched.fastq")
-    no_match_fastq = fastq.replace("processed.dir/","")
+    no_match_fastq = fastq.replace("downsample.dir/","")
 
     index = pre_trna.replace(".fa", ".idx")
 
 
     statement = """segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 80
-                   --index %(index)s --database %(pre_trna)s --nomatchfilename tRNA-mapping.dir/%(no_match_fastq)s
-                   --query %(fastq)s -o %(outfile)s 2> tRNA-mapping.dir/%(no_match_fastq)s.log &&
-                   gzip tRNA-mapping.dir/%(no_match_fastq)s &&
+                   --index %(index)s --database %(pre_trna)s
+                   --query %(fastq)s -o %(outfile)s 2> tRNA-mapping.dir/%(no_match_fastq)s.log
                    """
 
 
@@ -388,9 +387,9 @@ def pre_mapping_artificial(infiles, outfile):
     P.run(statement)
 
 
-@follows(pre_mapping_artificial,
+@transform(pre_mapping_artificial,
          suffix(".sam"),
-         "_filtered.sam")
+         "_filtered.fastq")
 def remove_reads(infile, outfile):
     """remove all of the reads mapping at least once to the genome"""
 
@@ -400,10 +399,11 @@ def remove_reads(infile, outfile):
 
     P.run(statement)
 
-@follows(remove_reads,
-         suffix(".sam"),
+
+@transform(remove_reads,
+         suffix("_filtered.fastq"),
          add_inputs(trna_scan_mito),
-         ".fastq")
+         "_filtered.fastq")
 def keep_mature_trna(infiles, outfile):
     """remove pre-tRNA reads, keep only mature tRNA reads"""
 
@@ -420,8 +420,8 @@ def keep_mature_trna(infiles, outfile):
 #################################################
 # Post processing of mapping data
 #################################################
-@transform(process_reads,
-           regex("processed.dir/(\S+)_processed.fastq.gz"),
+@transform(keep_mature_trna,
+           regex("(\S+)filtered_.fastq"),
            add_inputs(mature_trna_cluster, index_trna_cluster),
            r"\1.bam")
 def post_mapping_cluster(infiles, outfile):
@@ -429,15 +429,12 @@ def post_mapping_cluster(infiles, outfile):
 
     fastqfile, database, trna_cluster = infiles
 
-    no_match_fastq = fastq.replace(".fastq.gz","_unmatched_cluster.fastq")
-    no_match_fastq = fastq.replace("processed.dir/","")
-
     temp_file = P.get_temp_filename(".")
 
     statement = """segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 85 --index %(trna_cluster)s
-                   --database %(database)s --nomatchfilename %(no_match_fastq)s --query %(fastqfile)s | samtools view -bS |
-                   samtools sort -T %(temp_file)s -o %(outfile)s &&
-                   gzip %(no_match_fastq)s"""
+                   --database %(database)s  --query %(fastqfile)s | samtools view -bS |
+                   samtools sort -T %(temp_file)s -o %(outfile)s """
+# Maybe change segmehel for bowtie2 as its very slow for the genome
 
     P.run(statement)
     os.unlink(temp_file)
@@ -487,7 +484,17 @@ def index_modified_bam(infile, outfile):
 
     P.run(statement)
 
+@transform(index_modified_bam,
+           suffix(".mod.bam"),
+           ".mod.bam.bai")
+def modify_mapping_qual(infile, outfile):
+    """modify mapping quality to 60 (otherwise all were removed)"""
 
+    statement = """ """
+
+#    $gatk -T PrintReads -R ${genomeDir}/${tRNAName}_cluster.fa -I ${bn}.mod.bam -o ${bn}.temp.bam -rf ReassignMappingQuality -DMQ 60
+#    mv -f ${bn}.temp.bam ${bn}.mod.bam
+#    rm -f ${bn}.mod.bai ${bn}.mod.bam.bai
 
 def main(argv=None):
     if argv is None:
