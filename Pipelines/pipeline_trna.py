@@ -115,7 +115,8 @@ def process_reads(infile, outfile):
         ModuleTrna.process_trimmomatic(infile, outfile, phred,
                                    trimmomatic_options)
     else:
-        statement = "ln %(infile)s %(outfile)s"
+
+        statement = "cp %(infile)s %(outfile)s"
 
         P.run(statement)
 
@@ -285,7 +286,7 @@ def mask_trna_genomic(infiles, outfile):
            add_inputs(trna_scan_mito),
            "_artificial.fa")
 def create_pre_trna(infiles, outfile):
-    """create pre-tRNA library and then index genome and build segemehl indexes"""
+    """create pre-tRNA library and then index genome and build bowtie indexes"""
 
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
     genome_name = PARAMS['genome']
@@ -299,7 +300,7 @@ def create_pre_trna(infiles, outfile):
                 bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile)s_pre-tRNAs.bed12 -fo %(genome_name)s_pre-tRNAs.fa &&
                 cat %(masked_genome)s %(genome_name)s_pre-tRNAs.fa > %(genome_name)s_artificial.fa &&
                 samtools faidx %(genome_name)s_artificial.fa &&
-                segemehl.x -x %(genome_name)s_artificial.idx -d %(genome_name)s_artificial.fa 2> segemehl.log
+                bowtie-build %(genome_name)s_artificial.fa %(genome_name)s 2> bowtie-build.log
                 """
 
     job_memory = "80G"
@@ -362,28 +363,25 @@ def index_trna_cluster(infile, outfile):
 
     P.run(statement)
 
-@transform(downsample_fastq,
-           regex("downsample.dir/(\S+).fastq.gz"),
+@transform(process_reads,
+           regex("processed.dir/(\S+).fastq.gz"),
            add_inputs(create_pre_trna),
            r"\1.sam")
 def pre_mapping_artificial(infiles, outfile):
     """pre-mapping of reads against the artificial genome"""
 
-    fastq, pre_trna = infiles
+    fastq, pre_trna_index = infiles
 
-    no_match_fastq = fastq.replace(".fastq.gz","_unmatched.fastq")
-    no_match_fastq = fastq.replace("downsample.dir/","")
+    fastq_name = fastq.replace(".fastq.gz","")
+    fastq_name = fastq.replace("processed.dir/","")
 
-    index = pre_trna.replace(".fa", ".idx")
+    pre_trna_index = pre_trna_index.replace("_artificial.fa","")
 
-
-    statement = """segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 80
-                   --index %(index)s --database %(pre_trna)s
-                   --query %(fastq)s -o %(outfile)s 2> tRNA-mapping.dir/%(no_match_fastq)s.log
+    statement = """bowtie -n 3 -k 1000 -e 800 --al %(outfile)s --sam %(pre_trna_index)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log 
                    """
 
 
-    job_memory = "80G"
+    job_memory = "50G"
     P.run(statement)
 
 
