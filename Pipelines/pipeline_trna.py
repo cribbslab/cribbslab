@@ -284,20 +284,32 @@ def mask_trna_genomic(infiles, outfile):
 @transform(mask_trna_genomic,
            suffix("_masked.fa"),
            add_inputs(trna_scan_mito),
-           "_artificial.fa")
+           "_pre-tRNAs.fa")
 def create_pre_trna(infiles, outfile):
+
+    masked_genome, bedfile = infiles
+    genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
+    genome_name = PARAMS['genome']
+
+    statement = """
+               perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile)s_pre-tRNAs.bed12 &&
+                bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile)s_pre-tRNAs.bed12 -fo %(outfile)s """
+
+    P.run(statement)
+
+@transform(create_pre_trna,
+           suffix("_pre-tRNAs.fa"),
+           add_inputs(mask_trna_genomic),
+           "_artificial.fa")
+def create_artificial(infiles, outfile):
     """create pre-tRNA library and then index genome and build bowtie indexes"""
 
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
     genome_name = PARAMS['genome']
 
-    masked_genome, bedfile = infiles
-
-    bedfile = bedfile.replace(".bed12", "")
+    pre_trna, masked_genome = infiles
 
     statement = """
-                perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s.bed12 %(bedfile)s_pre-tRNAs.bed12 &&
-                bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile)s_pre-tRNAs.bed12 -fo %(genome_name)s_pre-tRNAs.fa &&
                 cat %(masked_genome)s %(genome_name)s_pre-tRNAs.fa > %(genome_name)s_artificial.fa &&
                 samtools faidx %(genome_name)s_artificial.fa &&
                 bowtie-build %(genome_name)s_artificial.fa %(genome_name)s 2> bowtie-build.log
@@ -364,8 +376,8 @@ def index_trna_cluster(infile, outfile):
     P.run(statement)
 
 @transform(process_reads,
-           regex("processed.dir/(\S+).fastq.gz"),
-           add_inputs(create_pre_trna),
+           regex("processed.dir/(\S+)_processed.fastq.gz"),
+           add_inputs(create_artificial),
            r"\1.sam")
 def pre_mapping_artificial(infiles, outfile):
     """pre-mapping of reads against the artificial genome"""
@@ -387,19 +399,20 @@ def pre_mapping_artificial(infiles, outfile):
 
 @transform(pre_mapping_artificial,
          suffix(".sam"),
-         "_filtered.fastq")
+         "_filtered.sam")
 def remove_reads(infile, outfile):
     """remove all of the reads mapping at least once to the genome"""
 
     genome_name = PARAMS['genome']
     
     statement = """perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(infile)s %(outfile)s"""
-
+# script isnt working and I think this could be done with samtools using flags maybe? or a python script
+    job_memory = "50G"
     P.run(statement)
 
 
 @transform(remove_reads,
-         suffix("_filtered.fastq"),
+         suffix("_filtered.sam"),
          add_inputs(trna_scan_mito),
          "_filtered.fastq")
 def keep_mature_trna(infiles, outfile):
@@ -409,9 +422,8 @@ def keep_mature_trna(infiles, outfile):
     bedfile = bedfile.replace(".bed12", "")
     
 
-    statement = """perl %(cribbslab)s/perl/removePrecursor.pl  %(bedfile)s_pre-tRNAs.bed12 %(infile)s > %(outfile)s &&
-                   gzip %(outfile)s"""
-
+    statement = """perl %(cribbslab)s/perl/removePrecursor.pl  %(bedfile)s_pre-tRNAs.bed12 %(samfile)s > %(outfile)s """
+# Again can this be done without using their script. I think a bedtools intersect may be able to do it then convert to fastq with a cgat script?
     P.run(statement)
 
 
@@ -419,7 +431,7 @@ def keep_mature_trna(infiles, outfile):
 # Post processing of mapping data
 #################################################
 @transform(keep_mature_trna,
-           regex("(\S+)filtered_.fastq"),
+           regex("(\S+)_processed_filtered.fastq"),
            add_inputs(mature_trna_cluster, index_trna_cluster),
            r"\1.bam")
 def post_mapping_cluster(infiles, outfile):
@@ -434,6 +446,7 @@ def post_mapping_cluster(infiles, outfile):
                    samtools sort -T %(temp_file)s -o %(outfile)s """
 # Maybe change segmehel for bowtie2 as its very slow for the genome
 
+    job_memory = "40G"
     P.run(statement)
     os.unlink(temp_file)
 
