@@ -61,18 +61,53 @@ def main(argv=None):
     parser = E.OptionParser(
         version="%prog version: $Id$", usage=globals()["__doc__"])
 
-    parser.add_option("-f", "--fasta-file", dest="fasta_file",
-                      action="store_true",
-                      help="merge paired-ended reads and output interval "
-                      "for entire fragment [default=%default]. ")
-
-    parser.set_defaults(
-    )
-
     (options, args) = E.start(parser, argv=argv)
 
     if len(args) == 0:
         args.append("-")
+
+    E.info(options.stdin)
+    fastafile = IOTools.open_file(options.stdin.name)
+
+    fasta = FastaIterator.FastaIterator(fastafile)
+
+    for line in fasta:
+        chrom = line.title
+        total_len = len(line.sequence)
+    
+        trna_list = []
+        string = None
+    
+        n = 0
+        for letter in line.sequence:
+        
+            n += 1
+            if n == 1:
+                string = letter
+            else:     
+                if string.isupper() and letter.isupper():
+                    string = str(string) + str(letter)
+                elif string.isupper() and letter.islower():
+                    trna_list.append(string)
+                    string = letter
+                elif string.islower() and letter.islower():
+                    string = str(string) + str(letter)
+                elif string.islower() and letter.isupper():
+                    trna_list.append(string)
+                    string = letter
+        trna_list.append(string)
+
+        start = 1
+        end = 1
+        chrom = line.title
+        for sequence in trna_list:
+            start = end
+            end = start + len(sequence)
+        
+            if sequence.islower():
+                strand = chrom.split("(")[1].split(")")[0]
+                options.stdout.write(("%s\t%s\t%s\t%s\t%s\t%s\t\n")%(chrom, start, end, chrom, ".", strand))
+
 
 
     E.stop()
