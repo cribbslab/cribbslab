@@ -291,9 +291,11 @@ def create_pre_trna(infiles, outfile):
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
     genome_name = PARAMS['genome']
 
+    bedfile_name = bedfile.replace(".bed12","")
+
     statement = """
-               perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile)s_pre-tRNAs.bed12 &&
-                bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile)s_pre-tRNAs.bed12 -fo %(outfile)s """
+               perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile_name)s_pre-tRNAs.bed12 &&
+                bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile_name)s_pre-tRNAs.bed12 -fo %(outfile)s """
 
     P.run(statement)
 
@@ -378,7 +380,7 @@ def index_trna_cluster(infile, outfile):
 @transform(process_reads,
            regex("processed.dir/(\S+)_processed.fastq.gz"),
            add_inputs(create_artificial),
-           r"\1.sam")
+           r"\1.bam")
 def pre_mapping_artificial(infiles, outfile):
     """pre-mapping of reads against the artificial genome"""
 
@@ -389,7 +391,8 @@ def pre_mapping_artificial(infiles, outfile):
 
     pre_trna_index = pre_trna_index.replace("_artificial.fa","")
 
-    statement = """bowtie -n 3 -k 1000 -e 800 --al %(outfile)s --sam %(pre_trna_index)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log 
+    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(pre_trna_index)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
+                   samtools view -b -o %(outfile)s
                    """
 
 
@@ -398,17 +401,19 @@ def pre_mapping_artificial(infiles, outfile):
 
 
 @transform(pre_mapping_artificial,
-         suffix(".sam"),
+         suffix(".bam"),
          "_filtered.sam")
 def remove_reads(infile, outfile):
     """remove all of the reads mapping at least once to the genome"""
 
     genome_name = PARAMS['genome']
-    
-    statement = """perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(infile)s %(outfile)s"""
-# script isnt working and I think this could be done with samtools using flags maybe? or a python script
+    temp_file = P.get_temp_filename(".")
+    statement = """samtools view %(infile)s> %(temp_file)s && 
+                   perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(temp_file)s %(outfile)s"""
+
     job_memory = "50G"
     P.run(statement)
+    os.unlink(temp_file)
 
 
 @transform(remove_reads,
@@ -423,7 +428,10 @@ def keep_mature_trna(infiles, outfile):
     
 
     statement = """perl %(cribbslab)s/perl/removePrecursor.pl  %(bedfile)s_pre-tRNAs.bed12 %(samfile)s > %(outfile)s """
+
+
 # Again can this be done without using their script. I think a bedtools intersect may be able to do it then convert to fastq with a cgat script?
+# Need to think about how best to do this because each trna is listed on its own chromosome
     P.run(statement)
 
 
