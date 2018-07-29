@@ -67,6 +67,8 @@ def get_repeat_gff(outfile):
         remove_contigs_regex=PARAMS["ucsc_remove_contigs"],
         job_memory="3G")
 
+def getGATKOptions():
+    return "-l mem_free=1.4G"
 
 ##############################################################
 # Perform quality control of the fastq files
@@ -222,6 +224,18 @@ def count_features(infiles, outfile):
 
     P.run(statement)
 
+###############################################
+# Quality statistics for small RNA
+###############################################
+
+# will run picard tools
+# Idxstats
+# Bamstats (bam2stats)
+# strand specificity
+# number of reads
+
+
+
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
@@ -269,7 +283,7 @@ def trna_scan_mito(infile, outfile):
                             PARAMS["genome"] + ".fa"),
            regex("\S+/([\w_]+[\d_]+).fa"),
            add_inputs(trna_scan_mito),
-           r"\1_masked.fa")
+           r"tRNA-mapping.dir/\1_masked.fa")
 def mask_trna_genomic(infiles, outfile):
     """use sam tools to mask fasta ing bedtools """
 
@@ -282,9 +296,9 @@ def mask_trna_genomic(infiles, outfile):
 
 
 @transform(mask_trna_genomic,
-           suffix("_masked.fa"),
+           regex("tRNA-mapping.dir/(\S+)_masked.fa"),
            add_inputs(trna_scan_mito),
-           "_pre-tRNAs.fa")
+           r"tRNA-mapping.dir/\1_pre-tRNAs.fa")
 def create_pre_trna(infiles, outfile):
 
     masked_genome, bedfile = infiles
@@ -300,31 +314,41 @@ def create_pre_trna(infiles, outfile):
     P.run(statement)
 
 @transform(create_pre_trna,
-           suffix("_pre-tRNAs.fa"),
+           regex("tRNA-mapping.dir/(\S+)_pre-tRNAs.fa"),
            add_inputs(mask_trna_genomic),
-           "_artificial.fa")
+           r"tRNA-mapping.dir/\1_artificial.fa")
 def create_artificial(infiles, outfile):
     """create pre-tRNA library and then index genome and build bowtie indexes"""
 
-    genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
     genome_name = PARAMS['genome']
 
     pre_trna, masked_genome = infiles
 
     statement = """
-                cat %(masked_genome)s %(genome_name)s_pre-tRNAs.fa > %(genome_name)s_artificial.fa &&
-                samtools faidx %(genome_name)s_artificial.fa &&
-                bowtie-build %(genome_name)s_artificial.fa %(genome_name)s 2> bowtie-build.log
+                cat %(masked_genome)s tRNA-mapping.dir/%(genome_name)s_pre-tRNAs.fa > %(outfile)s &&
+                samtools faidx %(outfile)s
                 """
 
-    job_memory = "80G"
     P.run(statement)
+
+@transform(create_artificial,
+           regex("tRNA-mapping.dir/(\S+)_artificial.fa"),
+           r"tRNA-mapping.dir/\1.ewbt")
+def bowtie_index_artificial(infile, outfile):
+    '''generate a bowtie index of the artificial genome '''
+
+    genome_name = PARAMS['genome']
+
+    statement = """ bowtie-build %(infile)s %(genome_name)s 2> tRNA-mapping.dir/bowtie-build_artificial.log """
+
+    P.run(statement)
+
 
 @transform(os.path.join(PARAMS["genome_dir"],
                             PARAMS["genome"] + ".fa"),
            regex("\S+/([\w_]+[\d_]+).fa"),
            add_inputs(trna_scan_mito),
-           r"\1.fa")
+           r"tRNA-mapping.dir/\1.fa")
 def create_mature_trna(infiles,outfile):
     """will create a library of mature tRNAs
     - remove introns and make fasta from bed12"""
@@ -336,8 +360,8 @@ def create_mature_trna(infiles,outfile):
     P.run(statement)
 
 @transform(create_mature_trna,
-           suffix(".fa"),
-           "_mature.fa")
+           regex("tRNA-mapping.dir/.fa"),
+           r"tRNA-mapping.dir/\1_mature.fa")
 def add_cca_tail(infile, outfile):
     """add CCA tail to the RNA chromosomes and remove pseudogenes"""
 
@@ -346,8 +370,8 @@ def add_cca_tail(infile, outfile):
     P.run(statement)
 
 @transform(add_cca_tail,
-           suffix("_mature.fa"),
-           "_cluster.fa")
+           regex("tRNA-mapping.dir/(\S+)_mature.fa"),
+           r"tRNA-mapping.dir/\1_cluster.fa")
 def mature_trna_cluster(infile, outfile):
     """mature tRNA clustering - only identical tRNAs are clustered"""
 
@@ -358,29 +382,34 @@ def mature_trna_cluster(infile, outfile):
     P.run(statement)
 
 @transform(mature_trna_cluster,
-           suffix(".fa"),
-           ".idx")
+           regex("tRNA-mapping.dir/(\S+).fa"),
+           r"tRNA-mapping.dir/\1.build_done")
 def index_trna_cluster(infile, outfile):
     """index tRNA clusters"""
 
     cluster_index = infile.replace("fa","idx")
     cluster_dict = infile.replace("fa","dict")
 
+    genome_name = PARAMS['genome']
+
     job_memory = "4G"
     picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
     job_threads = 3
 
     statement = """samtools faidx %(infile)s &&
-                   segemehl.x -x %(cluster_index)s -d %(infile)s 2> segemehl_cluster.log &&
-                   picard %(picard_opts)s CreateSequenceDictionary R=%(infile)s O=%(cluster_dict)s"""
+                   bowtie-build %(infile)s tRNA-mapping.dir/%(genome_name)s_cluster 2> bowtie_cluster.log &&
+                   picard %(picard_opts)s CreateSequenceDictionary R=%(infile)s O=tRNA-mapping.dir/%(cluster_dict)s &&
+                   touch %(outfile)s
+"""
 
 
     P.run(statement)
 
+@follows(mkdir("pre_mapping_bams.dir"))
 @transform(process_reads,
            regex("processed.dir/(\S+)_processed.fastq.gz"),
            add_inputs(create_artificial),
-           r"\1.bam")
+           r"pre_mapping_bams.dir/\1.bam")
 def pre_mapping_artificial(infiles, outfile):
     """pre-mapping of reads against the artificial genome"""
 
@@ -390,8 +419,9 @@ def pre_mapping_artificial(infiles, outfile):
     fastq_name = fastq.replace("processed.dir/","")
 
     pre_trna_index = pre_trna_index.replace("_artificial.fa","")
+    genome_name = PARAMS['genome']
 
-    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(pre_trna_index)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
+    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s_cluster %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
                    samtools view -b -o %(outfile)s
                    """
 
@@ -401,8 +431,8 @@ def pre_mapping_artificial(infiles, outfile):
 
 
 @transform(pre_mapping_artificial,
-         suffix(".bam"),
-         "_filtered.bam")
+         regex("pre_mapping_bams.dir/(\S+).bam"),
+         r"tRNA-mapping.dir/\1_filtered.bam")
 def remove_reads(infile, outfile):
     """remove all of the reads mapping at least once to the genome"""
 
@@ -419,8 +449,8 @@ def remove_reads(infile, outfile):
     os.unlink(temp_file1)
 
 @transform(create_pre_trna,
-           regex("()_pre-tRNAs.fa"),
-           r"\1_mature.bed")
+           regex("tRNA-mapping.dir(\S+)_pre-tRNAs.fa"),
+           r"tRNA-mapping.dir/\1_mature.bed")
 def create_mature_bed(infile, outfile):
     """remove pre-tRNA regions and form a bed file of the mature tRNAs"""
 
@@ -429,9 +459,9 @@ def create_mature_bed(infile, outfile):
     P.run(statement)
 
 @transform(remove_reads,
-         suffix("_filtered.bam"),
+         regex("(\S+)_filtered.bam"),
          add_inputs(create_mature_bed),
-         "_filtered.fastq.gz")
+         r"tRNA-mapping.dir/\1_filtered.fastq.gz")
 def keep_mature_trna(infiles, outfile):
     """remove pre-tRNA reads, keep only mature tRNA reads"""
 
@@ -442,9 +472,6 @@ def keep_mature_trna(infiles, outfile):
     statement = """bedtools intersect -f 1 -wa -abam %(samfile)s -b %(bedfile)s |
                    cgat bam2fastq %(outfile)s"""
 
-
-# Again can this be done without using their script. I think a bedtools intersect may be able to do it then convert to fastq with a cgat script?
-# Need to think about how best to do this because each trna is listed on its own chromosome
     P.run(statement)
 
 
@@ -452,24 +479,21 @@ def keep_mature_trna(infiles, outfile):
 # Post processing of mapping data
 #################################################
 @transform(keep_mature_trna,
-           regex("(\S+)_processed_filtered.fastq"),
-           add_inputs(mature_trna_cluster, index_trna_cluster),
-           r"\1.bam")
+           regex("tRNA-mapping.dir/(\S+)_filtered.fastq.gz"),
+           add_inputs(mature_trna_cluster),
+           r"\1_trna.bam")
 def post_mapping_cluster(infiles, outfile):
     """post mapping against the cluster tRNAs """
 
-    fastqfile, database, trna_cluster = infiles
+    fastqfile, database = infiles
 
-    temp_file = P.get_temp_filename(".")
+    genome_name = PARAMS['genome']
 
-    statement = """segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 85 --index %(trna_cluster)s
-                   --database %(database)s  --query %(fastqfile)s | samtools view -bS |
+    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s_cluster %(fastqfile)s 2> tRNA-mapping.dir/cluster.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s """
-# Maybe change segmehel for bowtie2 as its very slow for the genome
-
+# segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 85 --index %(trna_cluster)s --database %(database)s  --query %(fastqfile)s
     job_memory = "40G"
     P.run(statement)
-    os.unlink(temp_file)
 
 @transform(post_mapping_cluster,
            suffix(".bam"),
@@ -516,17 +540,33 @@ def index_modified_bam(infile, outfile):
 
     P.run(statement)
 
-@transform(index_modified_bam,
+@follows(index_modified_bam)
+@transform(add_readgroups,
            suffix(".mod.bam"),
-           ".mod.bam.bai")
-def modify_mapping_qual(infile, outfile):
+           add_inputs(mature_trna_cluster),
+           ".check")
+def haplotype_caller(infiles, outfile):
     """modify mapping quality to 60 (otherwise all were removed)"""
 
-    statement = """ """
+    infile, cluster_fa = infiles
 
-#    $gatk -T PrintReads -R ${genomeDir}/${tRNAName}_cluster.fa -I ${bn}.mod.bam -o ${bn}.temp.bam -rf ReassignMappingQuality -DMQ 60
-#    mv -f ${bn}.temp.bam ${bn}.mod.bam
-#    rm -f ${bn}.mod.bai ${bn}.mod.bam.bai
+    job_options = getGATKOptions()
+    job_threads = 3
+
+    statement = """gatk HaplotypeCaller -R %(cluster_fa)s -I %(infile)s -O %(outfile)s 
+                   """
+
+    P.run(statement)
+
+# Need to pair up the clusters with names of tRNAs
+
+##############################################
+# Identify tRNA fragment/full length position
+##############################################
+
+
+
+
 
 def main(argv=None):
     if argv is None:
