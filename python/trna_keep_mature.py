@@ -106,7 +106,7 @@ def main(argv=None):
         
             if sequence.islower():
                 strand = chrom.split("(")[1].split(")")[0]
-                options.stdout.write(("%s\t%s\t%s\t%s\t%s\t%s\t\n")%(chrom, start, end, chrom, ".", strand))
+                options.stdout.write(("%s\t%s\t%s\t%s\t%s\t%s\n")%(chrom, start, end, chrom, ".", strand))
 
 
 
