@@ -225,11 +225,132 @@ def count_features(infiles, outfile):
     P.run(statement)
 
 ###############################################
-# Quality statistics for small RNA
+# Quality statistics for small RNA on genome mapping
 ###############################################
 
+@follows(mkdir("genome_statistics.dir"))
+@transform(map_with_bowtie2,
+           suffix(".bam"),
+           r"genome_statistics.dir/\1.strand")
+def strandSpecificity(infile, outfile):
+    '''This function will determine the strand specificity of your library
+    from the bam file'''
+
+    statement = (
+        "cgat bam2libtype "
+        "--max-iterations 10000 "
+        "< {infile} "
+        "> {outfile}".format(**locals()))
+    return P.run(statement)
+
+
+@follows(mkdir("genome_statistics.dir"))
+@transform(map_with_bowtie2,
+           suffix(".bam"),
+           r"genome_statistics.dir/\1.nreads")
+def count_reads(infile, outfile):
+    '''Count number of reads in input files.'''
+
+    statement = '''printf "nreads \\t" >> %(outfile)s'''
+
+    P.run(statement)
+
+    statement = '''samtools view %(infile)s | wc -l | xargs printf >> %(outfile)s'''
+
+    P.run(statement)
+
+
+@follows(mkdir("genome_statistics.dir"))
+@transform(map_with_bowtie2,
+           regex(""),
+           add_inputs(count_reads),
+           r"")
+def buildBAMStats(infiles, outfile):
+    '''count number of reads mapped, duplicates, etc.
+    Excludes regions overlapping repetitive RNA sequences
+    Parameters
+    ----------
+    infiles : list
+    infiles[0] : str
+       Input filename in :term:`bam` format
+    infiles[1] : str
+       Input filename with number of reads per sample
+    outfile : str
+       Output filename with read stats
+    annotations_interface_rna_gtf : str
+        :term:`PARMS`. :term:`gtf` format file with repetitive rna
+    '''
+
+    rna_file = PARAMS["annotations_interface_rna_gff"]
+
+    job_memory = "32G"
+
+    bamfile, readsfile = infiles
+
+    nreads = PipelineBamStats.getNumReadsFromReadsFile(readsfile)
+    track = P.snip(os.path.basename(readsfile),
+                   ".nreads")
+
+    # if a fastq file exists, submit for counting
+    if os.path.exists(track + ".fastq.gz"):
+        fastqfile = track + ".fastq.gz"
+    elif os.path.exists(track + ".fastq.1.gz"):
+        fastqfile = track + ".fastq.1.gz"
+    else:
+        fastqfile = None
+
+    if fastqfile is not None:
+        fastq_option = "--fastq-file=%s" % fastqfile
+    else:
+        fastq_option = ""
+
+    statement = '''
+    cgat bam2stats
+         %(fastq_option)s
+         --force-output
+         --mask-bed-file=%(rna_file)s
+         --ignore-masked-reads
+         --num-reads=%(nreads)i
+         --output-filename-pattern=%(outfile)s.%%s
+    < %(bamfile)s
+    > %(outfile)s
+    '''
+
+    P.run(statement)
+
+@follows(mkdir("genome_statistics.dir"))
+@transform(map_with_bowtie2,
+           regex(),
+           r"genome_statistics.dir/\1.idxstats")
+def full_genome_idxstats(infile, outfile):
+    """This will generate idxstats to count the number of mapped
+       and unmapped reads per contig"""
+
+    statement = "samtools idxstats %(infile)s > %(outfile)s"
+
+    P.run(statement)
+
+@transform(map_with_bowtie2,
+           regex(),
+           r"")
+def build_samtools_stats(infile, outfile):
+    '''gets stats for bam file so number of reads per chromosome can
+    be plotted later'''
+
+    statement = '''samtools stats %(infile)s > %(outfile)s'''
+
+    P.run(statement)
+
+@follows(mkdir("genome_statistics.dir"))
+@transform(map_with_bowtie2,
+           regex(""),
+           r"")
+def buildPicardDuplicationStats(infile, outfile):
+    '''Get duplicate stats from picard MarkDuplicates '''
+    PipelineBamStats.buildPicardDuplicationStats(infile, outfile)
+
 # will run picard tools
-# Idxstats
+# bam2geneprofile accorss tRNAs - may impliment for post tRNA mapping
 # Bamstats (bam2stats)
 # strand specificity
 # number of reads
