@@ -402,24 +402,36 @@ def pre_mapping_artificial(infiles, outfile):
 
 @transform(pre_mapping_artificial,
          suffix(".bam"),
-         "_filtered.sam")
+         "_filtered.bam")
 def remove_reads(infile, outfile):
     """remove all of the reads mapping at least once to the genome"""
 
     genome_name = PARAMS['genome']
     temp_file = P.get_temp_filename(".")
-    statement = """samtools view %(infile)s> %(temp_file)s && 
-                   perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(temp_file)s %(outfile)s"""
+    temp_file1 = P.get_temp_filename(".")
+    statement = """samtools view -h %(infile)s> %(temp_file)s && 
+                   perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(temp_file)s %(temp_file1)s &&
+                   samtools view -b %(temp_file1)s > %(outfile)s"""
 
     job_memory = "50G"
     P.run(statement)
     os.unlink(temp_file)
+    os.unlink(temp_file1)
 
+@transform(create_pre_trna,
+           regex("()_pre-tRNAs.fa"),
+           r"\1_mature.bed")
+def create_mature_bed(infile, outfile):
+    """remove pre-tRNA regions and form a bed file of the mature tRNAs"""
+
+    statement = """python %(cribbslab)s/python/trna_keep_mature.py -I %(infile)s -S %(outfile)s """
+
+    P.run(statement)
 
 @transform(remove_reads,
-         suffix("_filtered.sam"),
-         add_inputs(trna_scan_mito),
-         "_filtered.fastq")
+         suffix("_filtered.bam"),
+         add_inputs(create_mature_bed),
+         "_filtered.fastq.gz")
 def keep_mature_trna(infiles, outfile):
     """remove pre-tRNA reads, keep only mature tRNA reads"""
 
@@ -427,7 +439,8 @@ def keep_mature_trna(infiles, outfile):
     bedfile = bedfile.replace(".bed12", "")
     
 
-    statement = """perl %(cribbslab)s/perl/removePrecursor.pl  %(bedfile)s_pre-tRNAs.bed12 %(samfile)s > %(outfile)s """
+    statement = """bedtools intersect -f 1 -wa -abam %(samfile)s -b %(bedfile)s |
+                   cgat bam2fastq %(outfile)s"""
 
 
 # Again can this be done without using their script. I think a bedtools intersect may be able to do it then convert to fastq with a cgat script?
