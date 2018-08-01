@@ -230,9 +230,9 @@ def count_features(infiles, outfile):
 
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie2,
-           suffix(".bam"),
+           regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.strand")
-def strandSpecificity(infile, outfile):
+def strand_specificity(infile, outfile):
     '''This function will determine the strand specificity of your library
     from the bam file'''
 
@@ -246,7 +246,7 @@ def strandSpecificity(infile, outfile):
 
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie2,
-           suffix(".bam"),
+           regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.nreads")
 def count_reads(infile, outfile):
     '''Count number of reads in input files.'''
@@ -262,10 +262,10 @@ def count_reads(infile, outfile):
 
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie2,
-           regex(""),
-           add_inputs(count_reads),
-           r"")
-def buildBAMStats(infiles, outfile):
+           regex("mapping.dir/(\S+).bam"),
+           add_inputs(count_reads, get_repeat_gff),
+           r"genome_statistics.dir/\1.readstats")
+def build_bam_stats(infiles, outfile):
     '''count number of reads mapped, duplicates, etc.
     Excludes regions overlapping repetitive RNA sequences
     Parameters
@@ -281,13 +281,11 @@ def buildBAMStats(infiles, outfile):
         :term:`PARMS`. :term:`gtf` format file with repetitive rna
     '''
 
-    rna_file = PARAMS["annotations_interface_rna_gff"]
-
     job_memory = "32G"
 
-    bamfile, readsfile = infiles
+    bamfile, readsfile, rna_file = infiles
 
-    nreads = PipelineBamStats.getNumReadsFromReadsFile(readsfile)
+    nreads = ModuleTrna.getNumReadsFromReadsFile(readsfile)
     track = P.snip(os.path.basename(readsfile),
                    ".nreads")
 
@@ -320,7 +318,7 @@ def buildBAMStats(infiles, outfile):
 
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie2,
-           regex(),
+           regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.idxstats")
 def full_genome_idxstats(infile, outfile):
     """This will generate idxstats to count the number of mapped
@@ -331,8 +329,8 @@ def full_genome_idxstats(infile, outfile):
     P.run(statement)
 
 @transform(map_with_bowtie2,
-           regex(),
-           r"")
+           regex("mapping.dir/(\S+).bam"),
+           r"genome_statistics.dir/\1.stats")
 def build_samtools_stats(infile, outfile):
     '''gets stats for bam file so number of reads per chromosome can
     be plotted later'''
@@ -340,21 +338,6 @@ def build_samtools_stats(infile, outfile):
     statement = '''samtools stats %(infile)s > %(outfile)s'''
 
     P.run(statement)
-
-@follows(mkdir("genome_statistics.dir"))
-@transform(map_with_bowtie2,
-           regex(""),
-           r"")
-def buildPicardDuplicationStats(infile, outfile):
-    '''Get duplicate stats from picard MarkDuplicates '''
-    PipelineBamStats.buildPicardDuplicationStats(infile, outfile)
-
-# will run picard tools
-# bam2geneprofile accorss tRNAs - may impliment for post tRNA mapping
-# Bamstats (bam2stats)
-# strand specificity
-# number of reads
-
 
 
 ################################################
@@ -382,8 +365,8 @@ def trna_scan_nuc(outfile):
            regex("tRNA-mapping.dir/(\S+).nuc.csv"),
            r"tRNA-mapping.dir/\1.bed12")
 def trna_scan_mito(infile, outfile):
-    """Scans genome using tRNAscanSE to identify mitochrondrial tRNA then outputs
-    a bed file of that."""
+    """Scans genome using tRNAscanSE to identify mitochrondrial tRNA then cat the output of nuclear
+       scan outputs a bed file of that."""
 
     genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
@@ -454,13 +437,18 @@ def create_artificial(infiles, outfile):
 
 @transform(create_artificial,
            regex("tRNA-mapping.dir/(\S+)_artificial.fa"),
-           r"tRNA-mapping.dir/\1.ewbt")
+           r"tRNA-mapping.dir/\1_artificial.ebwt")
 def bowtie_index_artificial(infile, outfile):
-    '''generate a bowtie index of the artificial genome '''
+    '''generate a bowtie index of the artificial genome 
+       ================================================
+       ================================================
+       Generating a bowtie index can take a while..
+       ================================================
+       '''
 
     genome_name = PARAMS['genome']
 
-    statement = """ bowtie-build %(infile)s %(genome_name)s 2> tRNA-mapping.dir/bowtie-build_artificial.log """
+    statement = """ bowtie-build %(infile)s tRNA-mapping.dir/%(genome_name)s_artificial 2> tRNA-mapping.dir/bowtie-build_artificial.log """
 
     P.run(statement)
 
@@ -481,7 +469,7 @@ def create_mature_trna(infiles,outfile):
     P.run(statement)
 
 @transform(create_mature_trna,
-           regex("tRNA-mapping.dir/.fa"),
+           regex("tRNA-mapping.dir/(\S+).fa"),
            r"tRNA-mapping.dir/\1_mature.fa")
 def add_cca_tail(infile, outfile):
     """add CCA tail to the RNA chromosomes and remove pseudogenes"""
@@ -504,50 +492,42 @@ def mature_trna_cluster(infile, outfile):
 
 @transform(mature_trna_cluster,
            regex("tRNA-mapping.dir/(\S+).fa"),
-           r"tRNA-mapping.dir/\1.build_done")
+           r"tRNA-mapping.dir/\1_cluster.ewbt")
 def index_trna_cluster(infile, outfile):
     """index tRNA clusters"""
-
-    cluster_index = infile.replace("fa","idx")
-    cluster_dict = infile.replace("fa","dict")
 
     genome_name = PARAMS['genome']
 
     job_memory = "4G"
-    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
-    job_threads = 3
 
     statement = """samtools faidx %(infile)s &&
-                   bowtie-build %(infile)s tRNA-mapping.dir/%(genome_name)s_cluster 2> bowtie_cluster.log &&
-                   picard %(picard_opts)s CreateSequenceDictionary R=%(infile)s O=tRNA-mapping.dir/%(cluster_dict)s &&
-                   touch %(outfile)s
+                   bowtie-build %(infile)s tRNA-mapping.dir/%(genome_name)s_cluster 2> bowtie_cluster.log
 """
 
 
     P.run(statement)
 
+
 @follows(mkdir("pre_mapping_bams.dir"))
 @transform(process_reads,
            regex("processed.dir/(\S+)_processed.fastq.gz"),
-           add_inputs(create_artificial),
+           add_inputs(bowtie_index_artificial),
            r"pre_mapping_bams.dir/\1.bam")
 def pre_mapping_artificial(infiles, outfile):
     """pre-mapping of reads against the artificial genome"""
 
-    fastq, pre_trna_index = infiles
+    fastq, bowtie_index_artificial = infiles
 
+    index_name = bowtie_index_artificial.replace(".ebwt", "")
     fastq_name = fastq.replace(".fastq.gz","")
     fastq_name = fastq.replace("processed.dir/","")
 
-    pre_trna_index = pre_trna_index.replace("_artificial.fa","")
-    genome_name = PARAMS['genome']
-
-    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s_cluster %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
+    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(index_name)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
                    samtools view -b -o %(outfile)s
                    """
 
 
-    job_memory = "50G"
+    job_memory = "20G"
     P.run(statement)
 
 
@@ -601,85 +581,54 @@ def keep_mature_trna(infiles, outfile):
 #################################################
 @transform(keep_mature_trna,
            regex("tRNA-mapping.dir/(\S+)_filtered.fastq.gz"),
-           add_inputs(mature_trna_cluster),
+           add_inputs(mature_trna_cluster, index_trna_cluster),
            r"\1_trna.bam")
 def post_mapping_cluster(infiles, outfile):
     """post mapping against the cluster tRNAs """
 
-    fastqfile, database = infiles
+    fastqfile, database, bowtie_index_cluster = infiles
 
-    genome_name = PARAMS['genome']
+    genome_name = bowtie_index_cluster.replace(".ewbt","")
 
-    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s_cluster %(fastqfile)s 2> tRNA-mapping.dir/cluster.log | samtools view -bS |
+    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s %(fastqfile)s 2> tRNA-mapping.dir/cluster.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s """
-# segemehl.x --silent --evalue 500 --differences 3 --maxinterval 1000 --accuracy 85 --index %(trna_cluster)s --database %(database)s  --query %(fastqfile)s
+
     job_memory = "40G"
     P.run(statement)
 
+
 @transform(post_mapping_cluster,
-           suffix(".bam"),
-           ".bai")
-def prep_index_rearrange(infile, outfile):
-    """preparing bam file for indel realignment"""
-
-    job_memory = "4G"
-    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
-    job_threads = 3
-
-    statement = """samtools index %(infile)s &&
-                   picard %(picard_opts)s BuildBamIndex I=%(infile)s O=%(outfile)s"""
-
-    P.run(statement)
-
-@follows(prep_index_rearrange)
-@transform(post_mapping_cluster,
-           suffix(".bam"),
-           ".mod.bam")
-def add_readgroups(infile, outfile):
-    """add read groups to bam file"""
-
-    job_memory = "4G"
-    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
-    job_threads = 3
-
-    statement = """picard %(picard_opts)s AddOrReplaceReadGroups I=%(infile)s O=%(outfile)s RGPL=RNASeqReadSimulator RGLB=Simlib RGPU=unit1 RGSM=36bam"""
-
-    P.run(statement)
-
-@transform(add_readgroups,
-           suffix(".mod.bam"),
-           ".mod.bai")
-def index_modified_bam(infile, outfile):
-    """idex the modified bam file """
-
-    job_memory = "4G"
-    picard_opts = '-Xmx%(job_memory)s -XX:+UseParNewGC -XX:+UseConcMarkSweepGC' % locals()
-    job_threads = 3
-
-    statement = """samtools index %(infile)s &&
-                   picard %(picard_opts)s BuildBamIndex I=%(infile)s O=%(outfile)s"""
-
-    P.run(statement)
-
-@follows(index_modified_bam)
-@transform(add_readgroups,
-           suffix(".mod.bam"),
+           suffix(".trna.bam"),
            add_inputs(mature_trna_cluster),
-           ".check")
-def haplotype_caller(infiles, outfile):
-    """modify mapping quality to 60 (otherwise all were removed)"""
+           ".var.raw.vcf")
+def samtools_pileup(infiles, outfile):
+    """use samtools mpileup and bcftools to call variants"""
 
     infile, cluster_fa = infiles
 
-    job_options = getGATKOptions()
-    job_threads = 3
-
-    statement = """gatk HaplotypeCaller -R %(cluster_fa)s -I %(infile)s -O %(outfile)s 
+    statement = """samtools mpileup -uf %(cluster_fa)s %(infile)s | 
+                   bcftools view -bcvg - > %(outfile)s
                    """
 
     P.run(statement)
 
+
+@transform(samtools_pileup,
+           suffix(".var.flt.vcf"),
+           ".var.flt.vcf")
+def filter_vcf(infile, outfile):
+    """filters a raw samtools mpileup vcf by depth"""
+
+    statement = """bcftools view %(infile)s | vcfutils.pl varFilter -D100 > %(outfile)s """
+
+
+    P.run(statement)
+
+
 # Need to pair up the clusters with names of tRNAs
+# bedtools to look at coverage
+# samtools to call variants
+
 
 ##############################################
 # Identify tRNA fragment/full length position

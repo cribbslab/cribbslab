@@ -11,6 +11,19 @@ import CGATCore.Pipeline as P
 import CGATCore.Database as Database
 
 
+
+def getNumReadsFromReadsFile(infile):
+    '''get number of reads from a .nreads file.'''
+    with IOTools.open_file(infile) as inf:
+        line = inf.readline()
+        if not line.startswith("nreads"):
+            raise ValueError(
+                "parsing error in file '%s': "
+                "expected first line to start with 'nreads'")
+        nreads = line.split("\t")[1]
+        nreads = int(nreads)
+    return nreads
+
 def connectToUCSC(host="genome-mysql.cse.ucsc.edu",
                   user="genome",
                   database=None):
