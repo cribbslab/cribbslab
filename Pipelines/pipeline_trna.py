@@ -544,7 +544,7 @@ def remove_reads(infiles, outfile):
     temp_file = P.get_temp_filename(".")
     temp_file1 = P.get_temp_filename(".")
     
-    statement = """samtools view -h %(infile)s> %(temp_file)s && 
+    statement = """samtools view -h %(infile)s> %(temp)s && 
                    perl %(cribbslab)s/perl/removeGenomeMapper.pl %(pre_trna_genome)s %(temp_file)s %(temp_file1)s &&
                    samtools view -b %(temp_file1)s > %(outfile)s"""
 
@@ -593,34 +593,52 @@ def post_mapping_cluster(infiles, outfile):
 
     fastqfile, database, bowtie_index_cluster = infiles
 
-    genome_name = bowtie_index_cluster.replace(".1.ewbt","")
+    genome_name = bowtie_index_cluster.replace(".1.ebwt","")
+
+    temp_file = P.get_temp_filename(".")
 
     statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s %(fastqfile)s 2> tRNA-mapping.dir/cluster.log | samtools view -bS |
-                   samtools sort -T %(temp_file)s -o %(outfile)s """
+                   samtools sort -T %(temp_file)s -o %(outfile)s &&
+                   samtools index %(outfile)s"""
 
     job_memory = "40G"
     P.run(statement)
 
-
+@follows(mkdir("variant_calling.dir/"))
 @transform(post_mapping_cluster,
-           suffix(".trna.bam"),
+           regex("post_mapping_bams.dir/(\S+)_trna.bam"),
            add_inputs(mature_trna_cluster),
-           ".var.raw.vcf")
+           r"variant_calling.dir/\1.var.raw.vcf")
 def samtools_pileup(infiles, outfile):
     """use samtools mpileup and bcftools to call variants"""
 
     infile, cluster_fa = infiles
 
-    statement = """samtools mpileup -uf %(cluster_fa)s %(infile)s | 
-                   bcftools view -bcvg - > %(outfile)s
+    statement = """samtools mpileup --no-BAQ --output-tags DP,AD -f %(cluster_fa)s --BCF %(infile)s | 
+                   bcftools call --consensus-caller --variants-only --pval-threshold 0.05 -Ov  > %(outfile)s
                    """
 
     P.run(statement)
 
 
 @transform(samtools_pileup,
-           suffix(".var.flt.vcf"),
-           ".var.flt.vcf")
+           regex("variant_calling.dir/(\S+).var.raw.vcf"),
+           add_inputs(mature_trna_cluster),
+           r"variant_calling.dir/\1_variants.vcf")
+def samtools_norm_indels(infiles, outfile):
+    """use bcftools to normalise for indels"""
+
+    infile, cluster_fa = infiles
+
+    statement = """bcftools norm -Ou -m-any %(infile)s | bcftools norm -Ov --check-ref w -f %(cluster_fa)s > %(outfile)s
+                   """
+
+    P.run(statement)
+
+
+@transform(samtools_norm_indels,
+           regex("variant_calling.dir/(\S+)_variants.vcf"),
+           r"variant_calling.dir/\1.var.flt.vcf")
 def filter_vcf(infile, outfile):
     """filters a raw samtools mpileup vcf by depth"""
 
