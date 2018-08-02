@@ -437,12 +437,13 @@ def create_artificial(infiles, outfile):
 
 @transform(create_artificial,
            regex("tRNA-mapping.dir/(\S+)_artificial.fa"),
-           r"tRNA-mapping.dir/\1_artificial.ebwt")
+           r"tRNA-mapping.dir/\1_artificial.1.ebwt")
 def bowtie_index_artificial(infile, outfile):
     '''generate a bowtie index of the artificial genome 
        ================================================
        ================================================
        Generating a bowtie index can take a while..
+       Please be patient, do something else.
        ================================================
        '''
 
@@ -492,7 +493,7 @@ def mature_trna_cluster(infile, outfile):
 
 @transform(mature_trna_cluster,
            regex("tRNA-mapping.dir/(\S+).fa"),
-           r"tRNA-mapping.dir/\1_cluster.ewbt")
+           r"tRNA-mapping.dir/\1.1.ebwt")
 def index_trna_cluster(infile, outfile):
     """index tRNA clusters"""
 
@@ -502,7 +503,7 @@ def index_trna_cluster(infile, outfile):
 
     statement = """samtools faidx %(infile)s &&
                    bowtie-build %(infile)s tRNA-mapping.dir/%(genome_name)s_cluster 2> bowtie_cluster.log
-"""
+                """
 
 
     P.run(statement)
@@ -518,7 +519,7 @@ def pre_mapping_artificial(infiles, outfile):
 
     fastq, bowtie_index_artificial = infiles
 
-    index_name = bowtie_index_artificial.replace(".ebwt", "")
+    index_name = bowtie_index_artificial.replace(".1.ebwt", "")
     fastq_name = fastq.replace(".fastq.gz","")
     fastq_name = fastq.replace("processed.dir/","")
 
@@ -533,15 +534,18 @@ def pre_mapping_artificial(infiles, outfile):
 
 @transform(pre_mapping_artificial,
          regex("pre_mapping_bams.dir/(\S+).bam"),
-         r"tRNA-mapping.dir/\1_filtered.bam")
-def remove_reads(infile, outfile):
+           add_inputs(create_pre_trna),
+         r"pre_mapping_bams.dir/\1_filtered.bam")
+def remove_reads(infiles, outfile):
     """remove all of the reads mapping at least once to the genome"""
 
-    genome_name = PARAMS['genome']
+    infile, pre_trna_genome = infiles
+
     temp_file = P.get_temp_filename(".")
     temp_file1 = P.get_temp_filename(".")
+    
     statement = """samtools view -h %(infile)s> %(temp_file)s && 
-                   perl %(cribbslab)s/perl/removeGenomeMapper.pl %(genome_name)s_pre-tRNAs.fa %(temp_file)s %(temp_file1)s &&
+                   perl %(cribbslab)s/perl/removeGenomeMapper.pl %(pre_trna_genome)s %(temp_file)s %(temp_file1)s &&
                    samtools view -b %(temp_file1)s > %(outfile)s"""
 
     job_memory = "50G"
@@ -560,7 +564,7 @@ def create_mature_bed(infile, outfile):
     P.run(statement)
 
 @transform(remove_reads,
-         regex("(\S+)_filtered.bam"),
+         regex("pre_mapping_bams.dir/(\S+)_filtered.bam"),
          add_inputs(create_mature_bed),
          r"tRNA-mapping.dir/\1_filtered.fastq.gz")
 def keep_mature_trna(infiles, outfile):
@@ -579,16 +583,17 @@ def keep_mature_trna(infiles, outfile):
 #################################################
 # Post processing of mapping data
 #################################################
+@follows(mkdir("post_mapping_bams.dir"))
 @transform(keep_mature_trna,
            regex("tRNA-mapping.dir/(\S+)_filtered.fastq.gz"),
            add_inputs(mature_trna_cluster, index_trna_cluster),
-           r"\1_trna.bam")
+           r"post_mapping_bams.dir/\1_trna.bam")
 def post_mapping_cluster(infiles, outfile):
     """post mapping against the cluster tRNAs """
 
     fastqfile, database, bowtie_index_cluster = infiles
 
-    genome_name = bowtie_index_cluster.replace(".ewbt","")
+    genome_name = bowtie_index_cluster.replace(".1.ewbt","")
 
     statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(genome_name)s %(fastqfile)s 2> tRNA-mapping.dir/cluster.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s """
