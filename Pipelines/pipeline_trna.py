@@ -67,8 +67,6 @@ def get_repeat_gff(outfile):
         remove_contigs_regex=PARAMS["ucsc_remove_contigs"],
         job_memory="3G")
 
-def getGATKOptions():
-    return "-l mem_free=1.4G"
 
 ##############################################################
 # Perform quality control of the fastq files
@@ -135,6 +133,7 @@ def fastqc_post(infile, outfile):
                 """
 
     P.run(statement)
+
 
 #####################################################
 # Count features over a subset of the data
@@ -205,7 +204,7 @@ def process_gtf(infiles, outfile):
 @transform(map_with_bowtie2,
            regex("mapping.dir/(\S+).bam"),
            add_inputs(process_gtf),
-           r"featurecounts.dir/\1/gene.tsv")
+           r"featurecounts.dir/\1/\1.feature_small.tsv")
 def count_features(infiles, outfile):
     """
     runs featurecounts to count reads over small RNA features
@@ -213,16 +212,18 @@ def count_features(infiles, outfile):
     
     bamfile, gtf = infiles
     
+    
     name = os.path.basename(bamfile)
     outfolder = name.replace(".bam","")
     intermediate = name.replace(".bam",".tsv")
 
     statement = """
                 featureCounts -t exon -g gene_id -a %(gtf)s -o featurecounts.dir/%(outfolder)s/%(intermediate)s %(bamfile)s &&
-                cut -f 1,7 featurecounts.dir/%(intermediate)s > featurecounts.dir/%(outfolder)s/gene.tsv 
+                cut -f 1,7 featurecounts.dir/%(outfolder)s/%(intermediate)s > %(outfile)s 
                 """
 
     P.run(statement)
+
 
 ###############################################
 # Quality statistics for small RNA on genome mapping
@@ -339,6 +340,21 @@ def build_samtools_stats(infile, outfile):
 
     P.run(statement)
 
+
+@transform(map_with_bowtie2,
+           regex("mapping.dir/(\S+).bam"),
+           add_inputs(os.path.join(PARAMS["bowtie2_genome_dir"],
+                            PARAMS["bowtie2_genome"] + ".fa")),
+           r"genome_statistics.dir/\1.genomecov")
+def genome_coverage(infiles, outfile):
+    """runs bedtoools genomecov to look at the coverage over all
+       samples """
+
+    infile, genome = infiles
+
+    statement = """bedtools genomecov -ibam %(infile)s -g %(genome)s > %(outfile)s"""
+
+    P.run(statement)
 
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
@@ -648,9 +664,11 @@ def filter_vcf(infile, outfile):
     P.run(statement)
 
 
+
+
+
 # Need to pair up the clusters with names of tRNAs
 # bedtools to look at coverage
-# samtools to call variants
 
 
 ##############################################
