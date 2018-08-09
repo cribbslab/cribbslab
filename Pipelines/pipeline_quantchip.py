@@ -138,7 +138,8 @@ def buildBedGraph(infile, outfile):
     P.run(statement)
 
 
-@transform(buildBedGraph, regex("bedGraph.dir/(\S+).bedgraph.gz"),
+@transform(buildBedGraph,
+           regex("bedGraph.dir/(\S+).bedgraph"),
            r"\1/\1.txt")
 def makeTagDirectory(infile, outfile):
     '''
@@ -146,7 +147,7 @@ def makeTagDirectory(infile, outfile):
     for a CHIP-seq experiment
     '''
 
-    bamstrip = infile.replace(".bedgraph.gz", "")
+    bamstrip = infile.replace(".bedgraph", "")
     file_name = bamstrip.replace("bedGraph.dir/./","")
 
     statement = '''
@@ -201,6 +202,22 @@ def plot_hist(infile, outfile):
    
 
     P.run(statement)
+
+@follows(mkdir("annotate.dir"))
+@transform(makeTagDirectory,
+           regex("(\S+)/(\S+).txt"),
+           r"\1/regions.txt")
+def find_peaks(infile, outfile):
+    """This function will peak call for histone peaks"""
+
+    tag_dir = os.path.dirname(infile)
+
+    statement = """
+                findPeaks %(tag_dir)s -style histone -o auto
+                """
+
+    P.run(statement)
+
 
 #####################################################
 # Create bigWig for plotting to IGV
