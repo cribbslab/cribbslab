@@ -90,7 +90,7 @@ def getIdxstats(infiles, outfile):
 @transform(SEQUENCEFILES,
            suffix(".bam"),
            add_inputs([getIdxstats]),
-           r"bedGraph.dir/\1.bedgraph.gz")
+           r"bedGraph.dir/\1.bedgraph")
 def buildBedGraph(infile, outfile):
     '''build wiggle files from bam files.
     Generate :term:`bigWig` format file from :term:`bam` alignment file
@@ -132,10 +132,11 @@ def buildBedGraph(infile, outfile):
     -scale %(scale)f
     > %(tmpfile)s &&
     sort -k1,1 -k2,2n -o %(tmpfile2)s %(tmpfile)s &&
-    cat %(tmpfile2)s | grep chr | gzip > %(outfile)s &&
+    cat %(tmpfile2)s | grep chr  > %(outfile)s &&
     rm -f %(tmpfile)s %(tmpfile2)s
     '''
     P.run(statement)
+
 
 @transform(buildBedGraph, regex("bedGraph.dir/(\S+).bedgraph.gz"),
            r"\1/\1.txt")
@@ -146,7 +147,7 @@ def makeTagDirectory(infile, outfile):
     '''
 
     bamstrip = infile.replace(".bedgraph.gz", "")
-    file_name = bamstrip.replace("bedGraph.dir/","")
+    file_name = bamstrip.replace("bedGraph.dir/./","")
 
     statement = '''
                    makeTagDirectory %(file_name)s -force5th
@@ -197,12 +198,31 @@ def plot_hist(infile, outfile):
                 --input=Hist.dir/%(inputD)s
                 """
 
+   
+
+    P.run(statement)
+
+#####################################################
+# Create bigWig for plotting to IGV
+#####################################################
+
+@transform(buildBedGraph,
+           regex("(\S+).bedgraph"),
+           r"\1.bw")
+def bedgraph_to_bw(infile, outfile):
+    """This function will generate a bigwig from a bedgraph"""    
+    
+    contig = os.path.basename(infile)
+    contig = contig.replace("bedgraph", "contig")
+    
+    statement = """bedGraphToBigWig %(infile)s %(contig)s %(outfile)s"""
+
     P.run(statement)
 
 # ---------------------------------------------------
 # Generic pipeline tasks
 @follows(getIdxstats,buildBedGraph, makeTagDirectory,
-         annotatePeaksBed, plot_hist)
+         annotatePeaksBed, plot_hist, bedgraph_to_bw)
 def full():
     pass
 
