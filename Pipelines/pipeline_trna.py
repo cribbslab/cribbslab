@@ -35,6 +35,7 @@ import sqlite3
 import CGATCore.Pipeline as P
 import CGATCore.Experiment as E
 import ModuleTrna
+import CGAT.IndexedFasta as IndexedFasta
 
 
 # load options from the config file
@@ -560,7 +561,7 @@ def remove_reads(infiles, outfile):
     temp_file = P.get_temp_filename(".")
     temp_file1 = P.get_temp_filename(".")
     
-    statement = """samtools view -h %(infile)s> %(temp)s && 
+    statement = """samtools view -h %(infile)s> %(temp_file)s && 
                    perl %(cribbslab)s/perl/removeGenomeMapper.pl %(pre_trna_genome)s %(temp_file)s %(temp_file1)s &&
                    samtools view -b %(temp_file1)s > %(outfile)s"""
 
@@ -619,6 +620,23 @@ def post_mapping_cluster(infiles, outfile):
 
     job_memory = "40G"
     P.run(statement)
+
+
+@transform(post_mapping_cluster,
+           regex("(\S+).fa"),
+           r"\1_contig.tsv")
+def get_contig_cluster(infile, outfile):
+    """This will generate a contig file of the cluster genome"""
+
+    fasta = IndexedFasta.IndexedFasta(infile)
+    contigs = []
+
+    for contig, size in fasta.getContigSizes(with_synonyms=False).items():
+        contigs.append([contig, size])
+    df_contig = pd.DataFrame(contigs, columns=['contigs', 'size'])
+    df_contig.sort_values('contigs', inplace=True)
+    df_contig.to_csv(outfile, sep="\t", header=False, index=False)
+    
 
 @follows(mkdir("variant_calling.dir/"))
 @transform(post_mapping_cluster,

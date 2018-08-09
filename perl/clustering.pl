@@ -25,11 +25,11 @@ while(<FILE>){
 }
 
 foreach my $KEY (keys %hash){
-	print OUT1 ">cluster$clusterNo\n$KEY\n";
+	print OUT1 ">chrZcluster$clusterNo\n$KEY\n";
 	my @LINE = split/\t/,$hash{$KEY}; 
 	foreach (@LINE){
 		my @ID = split/>/,$_;
-		print OUT2 ">cluster$clusterNo".":$ID[1]\n$KEY\n";
+		print OUT2 ">chrZcluster$clusterNo".":$ID[1]\n$KEY\n";
 	}
 	$clusterNo++;	
 }
