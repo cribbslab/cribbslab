@@ -203,6 +203,7 @@ def plot_hist(infile, outfile):
 
     P.run(statement)
 
+
 @follows(mkdir("annotate.dir"))
 @transform(makeTagDirectory,
            regex("(\S+)/(\S+).txt"),
@@ -213,11 +214,27 @@ def find_peaks(infile, outfile):
     tag_dir = os.path.dirname(infile)
 
     statement = """
-                findPeaks %(tag_dir)s -style histone -o auto
+                findPeaks %(tag_dir)s -region -size 150 -minDist 370 -o auto
                 """
-
+    job_memory = "10G"
     P.run(statement)
 
+
+@transform(CONTROLBAMS,
+           regex("(\S+).bam"),
+           r"annotate.dir/\1.xls")
+def call_peaks_macs2(infile, outfile):
+    """Will call peaks using MACS2 from a bedgraph"""
+
+    out_dir = os.path.dirname(outfile)
+    name = os.path.basename(outfile).replace(".xls","")
+
+    job_memory="50G"
+    statement = """
+                macs2 callpeak -t %(infile)s -g hs -f BAMPE -q 0.99 -n %(name)s --outdir annotate.dir/ >& annotate.dir/%(name)s.log
+                """
+
+    P.run(statement, job_condaenv="macs2")
 
 #####################################################
 # Create bigWig for plotting to IGV
