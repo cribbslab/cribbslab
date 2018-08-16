@@ -504,7 +504,7 @@ def mature_trna_cluster(infile, outfile):
 
     cluster_info = outfile.replace("_cluster.fa","_clusterInfo.fa")
 
-    statement = "perl %(cribbslab)s/perl/clustering.pl %(infile)s %(outfile)s %(cluster_info)s"
+    statement = "python /ifs/projects/adam/cribbslab/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"
 
     P.run(statement)
 
