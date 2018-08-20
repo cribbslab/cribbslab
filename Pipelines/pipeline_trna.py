@@ -32,6 +32,7 @@ from ruffus import *
 import sys
 import os
 import sqlite3
+import pandas as pd
 import CGATCore.Pipeline as P
 import CGATCore.Experiment as E
 import ModuleTrna
@@ -683,9 +684,6 @@ def filter_vcf(infile, outfile):
 
 
 
-
-
-# Need to pair up the clusters with names of tRNAs
 # bedtools to look at coverage
 
 
@@ -693,8 +691,30 @@ def filter_vcf(infile, outfile):
 # Identify tRNA fragment/full length position
 ##############################################
 
+@transform(post_mapping_cluster,
+           suffix(".bam"),
+           ".idxstats")
+def idx_stats_post(infile, outfile):
+    """perform samtools idxstats to determine percent expression of each cluster of tRNA
+    can be computed - will eventually be passed into r and percent computed"""
 
+    statement = "samtools idxstats %(infile)s > %(outfile)s"
 
+    P.run(statement)
+
+@collate(idx_stats_post,
+         regex("post_mapping_bams.dir/(\S+).idxstats"),
+         r"merged_idxstats.txt.gz")
+def merge_idx_stats(infiles, outfile):
+
+    final_df = pd.DataFrame()
+
+    for infile in infiles:
+        tmp_df = pd.read_table(infile, sep="\t", index_col=0)
+        final_df = final_df.merge(tmp_df, how="outer", left_index=True, right_index=True)
+
+    final_df = final_df.round()
+    final_df.to_csv(outfile, sep="\t", compression="gzip")
 
 
 def main(argv=None):

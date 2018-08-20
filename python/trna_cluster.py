@@ -102,6 +102,11 @@ def main(argv=None):
         n +=1
         cluster_dict[key] = n
         # output this to std out
+
+        m = re.match("(\S+)-(\S+)(\(\S+\))", value)
+
+        value = m.group(2)
+
         options.stdout.write((">cluster%s:%s\n%s\n")%(n, value, key))
 
     # iterate over the infile again, this time use the 
