@@ -24,28 +24,6 @@ version: 0.1
 # The full version, including alpha/beta/rc tags.
 release: 0.1
 
-########################################################
-# the genome to use (UCSC convention)
-genome: hg19
-
-################################################################
-#
-# Location of annotation database
-#
-################################################################
-annotations:
-    database: ?!
-
-    # directory with annotation information
-    dir: ''
-
-    ################################################################
-    #
-    # sphinxreport build options
-    #
-    ################################################################
-report:
-
-    # prefix to use for publishing the report from this pipeline
-    prefix: default
-
+merge: 
+    pattern_input: '(\S+)_L\d+'
+    pattern_output: '\1'
