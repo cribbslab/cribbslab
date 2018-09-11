@@ -397,7 +397,7 @@ def trna_scan_mito(infile, outfile):
                 cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
                 perl %(cribbslab)s/perl/tRNAscan2bed12.pl tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
                 """
-    # add onversion for csv to bed file
+    # add conversion for csv to bed file
     P.run(statement)
     os.unlink(tmp_genome)
 
@@ -522,8 +522,6 @@ def index_trna_cluster(infile, outfile):
     statement = """samtools faidx %(infile)s &&
                    bowtie-build %(infile)s tRNA-mapping.dir/%(genome_name)s_cluster 2> bowtie_cluster.log
                 """
-
-
     P.run(statement)
 
 
@@ -715,6 +713,24 @@ def merge_idx_stats(infiles, outfile):
 
     final_df = final_df.round()
     final_df.to_csv(outfile, sep="\t", compression="gzip")
+
+####################################
+# Collect information regarding the per base % and create a
+# table of sample info for plotting
+####################################
+
+@transform(post_mapping_cluster,
+           regex("post_mapping_bams.dir/(\S+)_trna.bam"),
+           add_inputs(mature_trna_cluster),
+           r"post_mapping_bams.dir/\1_pileup.tsv")
+def create_coverage(infiles, outfile):
+    '''use bam_pileup2tsv to compute the coverage over each base'''
+
+    infile, fasta = infiles
+
+    statement = '''cgat bam_pileup2tsv %(infile)s -m coverage-vcf -f %(fasta)s > %(outfile)s'''
+
+    P.run(statement)
 
 
 def main(argv=None):
