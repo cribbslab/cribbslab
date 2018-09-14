@@ -728,7 +728,7 @@ def create_coverage(infiles, outfile):
 
     infile, fasta = infiles
 
-    statement = '''cgat bam_pileup2tsv %(infile)s -m coverage-vcf -f %(fasta)s -L %(outfile)s.log> %(outfile)s '''
+    statement = '''cgat bam_pileup2tsv %(infile)s -m coverage-vcf -f %(fasta)s -L %(outfile)s.log > %(outfile)s '''
 
     P.run(statement)
 
