@@ -145,3 +145,24 @@ def process_trimmomatic(infile, outfile, phred, trimmomatic_options):
                 """ %locals()
 
     P.run(statement)
+
+def coverage(idx, coverage, outfile):
+    """
+    merges idx data with the coverage data and then outputs a data frame
+    that can then be plotted using ggplots in r
+    """
+
+    coverage = pd.read_csv(coverage, skiprows=3, sep="\t")
+    idx = pd.read_csv(idx, names=["#CHROM", "length", "mapped", "unmapped"], sep="\t")
+
+    total = np.sum(idx.loc[:,'mapped':].values)
+
+    idx['percent'] = idx.loc[:,'mapped':].sum(axis=1)/total * 100
+
+    idx = idx.sort_values(by=['percent'], ascending=False).head(50)
+
+    # merge two tables
+    df = idx.merge(coverage, left_on='#CHROM', right_on='#CHROM')
+
+    # split post_mapping column into two
+    df['GT'], df['read_count'] = df['post_mapping'].str.split(':', 1).str

@@ -732,6 +732,18 @@ def create_coverage(infiles, outfile):
 
     P.run(statement)
 
+@follows(create_coverage,
+         regex("post_mapping_bams.dir/(\S+)_pileup.tsv"),
+         add_inputs(idx_stats_post),
+         r"\1_top50_coverage.tsv")
+def coverage_plot(infiles, outfile):
+    ''' '''
+
+    coverage, idx = infiles
+
+    ModuleTrna.coverage(idx, coverage, outfile)
+
+
 
 def main(argv=None):
     if argv is None:
