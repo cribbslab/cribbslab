@@ -151,7 +151,7 @@ def downsample_fastq(infile, outfile):
     """
 
     statement = """
-                seqtk sample -s100 %(infile)s 500000 | gzip > %(outfile)s
+                seqtk sample -s100 %(infile)s 2000000 | gzip > %(outfile)s
                 """
 
     P.run(statement)
@@ -226,6 +226,17 @@ def count_features(infiles, outfile):
 
     P.run(statement)
 
+@collate(count_features,
+         regex("featurecounts.dir/(\S+)/(\S+).feature_small.tsv"),
+         r"featurecounts.dir/merged_features.tsv")
+def merge_features(infiles, outfile):
+    """This function will merge all of the outputs from featurecounts and
+    create a single tsv file for all samples"""
+
+
+    features = ModuleTrna.merge_feature_data(infiles)
+    
+    features.to_csv(outfile, sep="\t", header=True, index=True)
 
 ###############################################
 # Quality statistics for small RNA on genome mapping
@@ -540,7 +551,7 @@ def pre_mapping_artificial(infiles, outfile):
     fastq_name = fastq.replace("processed.dir/","")
 
     statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(index_name)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
-                   samtools view -b -o %(outfile)s
+                   samtools view -b -o %(outfile)s && samtools index %(outfile)s
                    """
 
 
@@ -732,6 +743,7 @@ def create_coverage(infiles, outfile):
 
     P.run(statement)
 
+'''
 @follows(create_coverage,
          regex("post_mapping_bams.dir/(\S+)_pileup.tsv"),
          add_inputs(idx_stats_post),
@@ -742,7 +754,7 @@ def coverage_plot(infiles, outfile):
     coverage, idx = infiles
 
     ModuleTrna.coverage(idx, coverage, outfile)
-
+'''
 
 
 def main(argv=None):

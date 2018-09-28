@@ -4,13 +4,27 @@ ModuleTrna.py - Tasks for running trna pipleine
 """
 
 import os
+import re
 import pysam
 import CGATCore.Experiment as E
 import CGATCore.IOTools as IOTools
 import CGATCore.Pipeline as P
 import CGATCore.Database as Database
+import pandas as pd
 
 
+
+def merge_feature_data(infiles):
+    '''will merge all of the input files '''
+
+    final_df = pd.DataFrame()
+    for infile in infiles:
+        tmp_df = pd.read_table(infile, sep="\t", index_col=0, skiprows=1)
+        final_df = final_df.merge(tmp_df, how="outer", left_index=True, right_index=True)
+    final_df = final_df.rename(columns=lambda x: re.sub(".bam","",x))
+    final_df = final_df.rename(columns=lambda x: re.sub("mapping.dir/","",x))
+
+    return final_df
 
 def getNumReadsFromReadsFile(infile):
     '''get number of reads from a .nreads file.'''
