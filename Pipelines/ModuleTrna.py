@@ -6,10 +6,10 @@ ModuleTrna.py - Tasks for running trna pipleine
 import os
 import re
 import pysam
-import CGATCore.Experiment as E
-import CGATCore.IOTools as IOTools
-import CGATCore.Pipeline as P
-import CGATCore.Database as Database
+import cgatcore.experiment as E
+import cgatcore.iotools as IOTools
+import cgatcore.pipeline as P
+import cgatcore.database as Database
 import pandas as pd
 
 
@@ -24,6 +24,20 @@ def merge_feature_data(infiles):
     final_df = final_df.rename(columns=lambda x: re.sub(".bam","",x))
     final_df = final_df.rename(columns=lambda x: re.sub("mapping.dir/","",x))
 
+    return final_df
+
+def merge_counts_data(infiles):
+    '''will merge all of the output of idx stats into a counts
+    table so it can be parsed into r for differential analysis'''
+
+    final_df = pd.DataFrame()
+    for infile in infiles:
+        name = infile.replace(".idxstats", "")
+        name = name.replace("post_mapping_bams.dir/","")
+        tmp_df = pd.read_table(infile, sep="\t", header=None, names=["length",name,"unmapped"],index_col=0)
+        tmp_df = tmp_df[name]
+        final_df = final_df.merge(tmp_df.to_frame(), how="outer", left_index=True, right_index=True)
+        
     return final_df
 
 def getNumReadsFromReadsFile(infile):

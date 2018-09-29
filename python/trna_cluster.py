@@ -43,9 +43,9 @@ Command line options
 
 import sys
 import re
-import CGAT.FastaIterator as FastaIterator
-import CGATCore.IOTools as IOTools
-import CGATCore.Experiment as E
+import cgat.FastaIterator as FastaIterator
+import cgatcore.iotools as IOTools
+import cgatcore.experiment as E
 import collections
 
 def main(argv=None):

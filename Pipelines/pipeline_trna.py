@@ -13,7 +13,7 @@ has an emphasis on profiling nuclear and mitochondrial tRNA fragments.
 Requires:
  * a single end fastq file - if you have paired end data we recoment flashing the reads together
  to make a single file or only using the first read of your paired end data.
- * a bowtie2 indexed genome
+ * a bowtie indexed genome
  * ensembl gtf: can be downloaded from 
 
 segemehl is quite a slow mapper in comparrison to others. However it improves the quality of the tRNA alignment
@@ -33,10 +33,10 @@ import sys
 import os
 import sqlite3
 import pandas as pd
-import CGATCore.Pipeline as P
-import CGATCore.Experiment as E
+import cgatcore.pipeline as P
+import cgatcore.experiment as E
 import ModuleTrna
-import CGAT.IndexedFasta as IndexedFasta
+import cgat.IndexedFasta as IndexedFasta
 
 
 # load options from the config file
@@ -151,7 +151,7 @@ def downsample_fastq(infile, outfile):
     """
 
     statement = """
-                seqtk sample -s100 %(infile)s 2000000 | gzip > %(outfile)s
+                seqtk sample -s100 %(infile)s 500000 | gzip > %(outfile)s
                 """
 
     P.run(statement)
@@ -159,23 +159,22 @@ def downsample_fastq(infile, outfile):
 @follows(mkdir("mapping.dir"))
 @transform(downsample_fastq,
            regex("downsample.dir/(\S+).fastq.gz"),
-           add_inputs(os.path.join(PARAMS["bowtie2_genome_dir"],
-                            PARAMS["bowtie2_genome"] + ".fa")),
+           add_inputs(os.path.join(PARAMS["bowtie_genome_dir"],
+                            PARAMS["bowtie_genome"] + ".fa")),
            r"mapping.dir/\1.bam")
-def map_with_bowtie2(infiles, outfile):
+def map_with_bowtie(infiles, outfile):
     """
-    map reads with bowtie2
+    map reads with bowtie to get general alignment so features can be counted
+    over RNA gene_biotypes
     """
     fastq, genome = infiles
-
+    temp_file = P.get_temp_filename(".")
     genome = genome.replace(".fa", "")
 
-    samfile = outfile.replace(".bam", ".sam")
-
-    statement = """bowtie2 %(bowtie2_options)s -x %(genome)s -U %(fastq)s -S %(samfile)s 2>%(outfile)s_bowtie.log &&
-                   samtools view -bS %(samfile)s |
-                   samtools sort -o %(outfile)s &&
-                   samtools index %(outfile)s"""
+    statement = """bowtie -k 10 -v 2 --best --strata --sam  %(genome)s %(fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
+                   samtools sort -T %(temp_file)s -o %(outfile)s &&
+                   samtools index %(outfile)s
+                """
 
     P.run(statement)
 
@@ -195,7 +194,7 @@ def process_gtf(infiles, outfile):
     statement = """
                 zcat %(repeats)s | cgat gff2bed --set-name=class |
                 cgat bed2gff --as-gtf | gzip > gtf.dir/rna.gtf.gz &&
-                zcat %(gtf_location)s | cgat gff2bed --set-name=source | cgat bed2gff --as-gtf | gzip > gtf.dir/ensembl.gtf.gz &&
+                zcat %(gtf_location)s | cgat gff2bed --set-name=gene_biotype | cgat bed2gff --as-gtf | gzip > gtf.dir/ensembl.gtf.gz &&
                 zcat gtf.dir/rna.gtf.gz gtf.dir/ensembl.gtf.gz > %(outfile)s
                 """
 
@@ -203,7 +202,7 @@ def process_gtf(infiles, outfile):
 
 
 @follows(mkdir("featurecounts.dir"))
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            add_inputs(process_gtf),
            r"featurecounts.dir/\1/\1.feature_small.tsv")
@@ -243,7 +242,7 @@ def merge_features(infiles, outfile):
 ###############################################
 
 @follows(mkdir("genome_statistics.dir"))
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.strand")
 def strand_specificity(infile, outfile):
@@ -259,7 +258,7 @@ def strand_specificity(infile, outfile):
 
 
 @follows(mkdir("genome_statistics.dir"))
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.nreads")
 def count_reads(infile, outfile):
@@ -275,7 +274,7 @@ def count_reads(infile, outfile):
 
 
 @follows(mkdir("genome_statistics.dir"))
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            add_inputs(count_reads, get_repeat_gff),
            r"genome_statistics.dir/\1.readstats")
@@ -331,7 +330,7 @@ def build_bam_stats(infiles, outfile):
     P.run(statement)
 
 @follows(mkdir("genome_statistics.dir"))
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.idxstats")
 def full_genome_idxstats(infile, outfile):
@@ -342,7 +341,7 @@ def full_genome_idxstats(infile, outfile):
 
     P.run(statement)
 
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            r"genome_statistics.dir/\1.stats")
 def build_samtools_stats(infile, outfile):
@@ -354,10 +353,10 @@ def build_samtools_stats(infile, outfile):
     P.run(statement)
 
 
-@transform(map_with_bowtie2,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
-           add_inputs(os.path.join(PARAMS["bowtie2_genome_dir"],
-                            PARAMS["bowtie2_genome"] + ".fa")),
+           add_inputs(os.path.join(PARAMS["bowtie_genome_dir"],
+                            PARAMS["bowtie_genome"] + ".fa")),
            r"genome_statistics.dir/\1.genomecov")
 def genome_coverage(infiles, outfile):
     """runs bedtoools genomecov to look at the coverage over all
@@ -550,8 +549,8 @@ def pre_mapping_artificial(infiles, outfile):
     fastq_name = fastq.replace(".fastq.gz","")
     fastq_name = fastq.replace("processed.dir/","")
 
-    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(index_name)s %(fastq)s 2> tRNA-mapping.dir/%(fastq_name)s.log |
-                   samtools view -b -o %(outfile)s && samtools index %(outfile)s
+    statement = """bowtie -n 3 -k 1 --best -e 800 --sam  %(index_name)s %(fastq)s 2> pre_mapping_bams.dir/%(fastq_name)s.log |
+                   samtools view -b -o %(outfile)s
                    """
 
 
@@ -700,12 +699,14 @@ def filter_vcf(infile, outfile):
 # Identify tRNA fragment/full length position
 ##############################################
 
+@follows(remove_reads)
 @transform(post_mapping_cluster,
            suffix(".bam"),
            ".idxstats")
 def idx_stats_post(infile, outfile):
     """perform samtools idxstats to determine percent expression of each cluster of tRNA
-    can be computed - will eventually be passed into r and percent computed"""
+    can be computed - will eventually be passed into r to perform differential 
+    expression analysis and calulate the percent computed"""
 
     statement = "samtools idxstats %(infile)s > %(outfile)s"
 
@@ -716,13 +717,9 @@ def idx_stats_post(infile, outfile):
          r"merged_idxstats.txt.gz")
 def merge_idx_stats(infiles, outfile):
 
-    final_df = pd.DataFrame()
 
-    for infile in infiles:
-        tmp_df = pd.read_table(infile, sep="\t", index_col=0)
-        final_df = final_df.merge(tmp_df, how="outer", left_index=True, right_index=True)
+    final_df = ModuleTrna.merge_counts_data(infiles)
 
-    final_df = final_df.round()
     final_df.to_csv(outfile, sep="\t", compression="gzip")
 
 ####################################
@@ -742,7 +739,7 @@ def create_coverage(infiles, outfile):
     statement = '''cgat bam_pileup2tsv %(infile)s -m coverage-vcf -f %(fasta)s -L %(outfile)s.log > %(outfile)s '''
 
     P.run(statement)
-
+# need to merge coverage?
 '''
 @follows(create_coverage,
          regex("post_mapping_bams.dir/(\S+)_pileup.tsv"),
