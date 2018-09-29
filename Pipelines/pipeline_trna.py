@@ -93,6 +93,7 @@ def fastqc_pre(infile, outfile):
     P.run(statement)
 
 
+@follows(fastqc_pre)
 @follows(mkdir("processed.dir"))
 @transform(INPUT_FORMATS,
            suffix(".fastq.gz"),
@@ -691,10 +692,6 @@ def filter_vcf(infile, outfile):
     P.run(statement)
 
 
-
-# bedtools to look at coverage
-
-
 ##############################################
 # Identify tRNA fragment/full length position
 ##############################################
@@ -753,6 +750,13 @@ def coverage_plot(infiles, outfile):
     ModuleTrna.coverage(idx, coverage, outfile)
 '''
 
+
+@follows(strand_specificity, count_reads, count_features, build_bam_stats,
+         full_genome_idxstats, build_samtools_stats, genome_coverage,
+         bowtie_index_artificial, index_trna_cluster, remove_reads,
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf)
+def full():
+    pass
 
 def main(argv=None):
     if argv is None:
