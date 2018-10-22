@@ -195,7 +195,7 @@ def process_gtf(infiles, outfile):
     statement = """
                 zcat %(repeats)s | cgat gff2bed --set-name=class |
                 cgat bed2gff --as-gtf | gzip > gtf.dir/rna.gtf.gz &&
-                zcat %(gtf_location)s | cgat gff2bed --set-name=gene_biotype | cgat bed2gff --as-gtf | gzip > gtf.dir/ensembl.gtf.gz &&
+                zcat %(gtf_location)s | cgat gff2bed --set-name=gene_id | cgat bed2gff --as-gtf | gzip > gtf.dir/ensembl.gtf.gz &&
                 zcat gtf.dir/rna.gtf.gz gtf.dir/ensembl.gtf.gz > %(outfile)s
                 """
 
@@ -372,7 +372,8 @@ def genome_coverage(infiles, outfile):
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
-
+'''
+@active_if(PARAMS['index_run'])
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_nuc(outfile):
@@ -388,6 +389,38 @@ def trna_scan_nuc(outfile):
     job_memory = "50G"
 
     P.run(statement)
+
+@active_if(not PARAMS['index_run'])
+@follows(mkdir("tRNA-mapping.dir"))
+def link_indexed_genome(outfile):
+ #   """ User can specify to include indexed trna genomes and create soft link to them, rather than running slow trna scan """
+#    indexed_genome = os.path.join(PARAMS['index_genome_dir'], PARAMS['index_genome'] + ".nuc.csv")
+    os.symlink(indexed_genome, "tRNA-mapping.dir/tRNAscan.nuc.csv")
+# softlink to location of nuc.csv file
+
+'''
+## Using if else statements: ####
+@follows(mkdir("tRNA-mapping.dir"))
+@originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
+def trna_scan_nuc(outfile):
+    if( PARAMS['index_run']):
+        """Scans genome using tRNAscanSE to identify nuclear tRNA"""
+
+
+        genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
+
+        statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
+
+# Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
+# Also the indexing of the genome is also quite time consuming so maybe have this paramaterisable to users can
+# specify if they have already indexed the genome previously.
+        job_memory = "50G"
+
+        P.run(statement)
+    else:
+        indexed_genome = os.path.join(PARAMS['index_genome_dir'], PARAMS['index_genome'] + ".nuc.csv")
+        os.symlink(indexed_genome, 'tRNA-mapping.dir/tRNAscan.nuc.csv')
+# softlink to location of nuc.csv file
 
 
 @transform(trna_scan_nuc,
@@ -406,7 +439,7 @@ def trna_scan_mito(infile, outfile):
                 tRNAscan-SE -q -O  %(tmp_genome)s | sed 1,3d > tRNA-mapping.dir/tRNAscan.chrM.csv &&
                 grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
                 cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
-                perl %(cribbslab)s/perl/tRNAscan2bed12.pl tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
+                python %(cribbslab)s/python/tRNAscan2bed12.py tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
                 """
     # add conversion for csv to bed file
     P.run(statement)
@@ -516,7 +549,7 @@ def mature_trna_cluster(infile, outfile):
 
     cluster_info = outfile.replace("_cluster.fa","_clusterInfo.fa")
 
-    statement = "python /ifs/projects/adam/cribbslab/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"
+    statement = "python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"
 
     P.run(statement)
 
@@ -632,8 +665,8 @@ def post_mapping_cluster(infiles, outfile):
     P.run(statement)
 
 
-@transform(post_mapping_cluster,
-           regex("(\S+).fa"),
+@transform(mature_trna_cluster,
+           regex("tRNA-mapping.dir/(\S+).fa"),
            r"\1_contig.tsv")
 def get_contig_cluster(infile, outfile):
     """This will generate a contig file of the cluster genome"""
