@@ -69,7 +69,6 @@ def get_repeat_gff(outfile):
         remove_contigs_regex=PARAMS["ucsc_remove_contigs"],
         job_memory="3G")
 
-
 ##############################################################
 # Perform quality control of the fastq files
 ##############################################################
@@ -87,11 +86,9 @@ def fastqc_pre(infile, outfile):
     Runs fastQC on each input file
     """
 
-    statement = """fastqc -q -o fastqc_pre.dir/ %(infile)s
-                """
+    statement = "fastqc -q -o fastqc_pre.dir/ %(infile)s"
 
     P.run(statement)
-
 
 @follows(fastqc_pre)
 @follows(mkdir("processed.dir"))
@@ -169,10 +166,11 @@ def map_with_bowtie(infiles, outfile):
     over RNA gene_biotypes
     """
     fastq, genome = infiles
+    tmp_fastq = P.get_temp_filename(".")
     temp_file = P.get_temp_filename(".")
     genome = genome.replace(".fa", "")
 
-    statement = """bowtie -k 10 -v 2 --best --strata --sam  %(genome)s %(fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
+    statement = """gzip -dc %(fastq)s > %(tmp_fastq)s && bowtie -k 10 -v 2 --best --strata --sam  %(genome)s  %(tmp_fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s &&
                    samtools index %(outfile)s
                 """
@@ -195,7 +193,7 @@ def process_gtf(infiles, outfile):
     statement = """
                 zcat %(repeats)s | cgat gff2bed --set-name=class |
                 cgat bed2gff --as-gtf | gzip > gtf.dir/rna.gtf.gz &&
-                zcat %(gtf_location)s | cgat gff2bed --set-name=gene_id | cgat bed2gff --as-gtf | gzip > gtf.dir/ensembl.gtf.gz &&
+                zcat %(gtf_location)s | cgat gff2bed --set-name=gene_biotype | cgat bed2gff --as-gtf | gzip > gtf.dir/ensembl.gtf.gz &&
                 zcat gtf.dir/rna.gtf.gz gtf.dir/ensembl.gtf.gz > %(outfile)s
                 """
 
@@ -434,13 +432,24 @@ def trna_scan_mito(infile, outfile):
 
     tmp_genome = P.get_temp_filename(".")
 
+   # statement = """
+    #            cat %(genome)s | perl -lane 'BEGIN{$c=0;}if(m/^>chrM$/){$c=1}elsif(m/^>/){$c=0;}print if $c' > %(tmp_genome)s &&
+     #           tRNAscan-SE -q -O  %(tmp_genome)s | sed 1,3d | cat | tr "\\t" "," > tRNA-mapping.dir/tRNAscan.chrM.csv &&
+      #          grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
+       #         cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
+        #        perl %(cribbslab)s/perl/tRNAscan2bed12.pl tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
+         #       """
+
+# For python script
+
     statement = """
                 cat %(genome)s | perl -lane 'BEGIN{$c=0;}if(m/^>chrM$/){$c=1}elsif(m/^>/){$c=0;}print if $c' > %(tmp_genome)s &&
-                tRNAscan-SE -q -O  %(tmp_genome)s | sed 1,3d > tRNA-mapping.dir/tRNAscan.chrM.csv &&
+                tRNAscan-SE -q -O  %(tmp_genome)s |sed 1,3d | cat | tr "\\t" "," > tRNA-mapping.dir/tRNAscan.chrM.csv &&
                 grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
                 cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
-                python %(cribbslab)s/python/tRNAscan2bed12.py tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
+                python %(cribbslab)s/python/tRNAscan2bed12.py -I tRNA-mapping.dir/tRNAscan.csv -S %(outfile)s
                 """
+#  --info-file-out=%(trna_bed_info)s
     # add conversion for csv to bed file
     P.run(statement)
     os.unlink(tmp_genome)
@@ -473,9 +482,17 @@ def create_pre_trna(infiles, outfile):
 
     bedfile_name = bedfile.replace(".bed12","")
 
+   # statement = """
+    #           perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile_name)s_pre-tRNAs.bed12 &&
+     #           bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile_name)s_pre-tRNAs.bed12 -fo %(outfile)s """
+
     statement = """
-               perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile_name)s_pre-tRNAs.bed12 &&
+               python %(cribbslab)s/python/modBed12.py -I %(bedfile)s -S %(bedfile_name)s_pre-tRNAs.bed12 &&
                 bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile_name)s_pre-tRNAs.bed12 -fo %(outfile)s """
+
+
+
+
 
     P.run(statement)
 
@@ -537,7 +554,8 @@ def create_mature_trna(infiles,outfile):
 def add_cca_tail(infile, outfile):
     """add CCA tail to the RNA chromosomes and remove pseudogenes"""
 
-    statement = """perl %(cribbslab)s/perl/addCCA.pl %(infile)s %(outfile)s"""
+    statement = """python %(cribbslab)s/python/addCCA.py -I %(infile)s -S %(outfile)s"""
+   # statement = """perl %(cribbslab)s/perl/addCCA.pl  %(infile)s  %(outfile)s"""
 
     P.run(statement)
 
