@@ -271,7 +271,7 @@ def count_reads(infile, outfile):
 
     P.run(statement)
 
-
+# Doesn't seem to work for both 
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
@@ -294,8 +294,22 @@ def build_bam_stats(infiles, outfile):
     '''
 
     job_memory = "32G"
-
-    bamfile, readsfile, rna_file = infiles
+ 
+   # If there are multiple files (things being sequenced??) must specify which .nreads file to use, so matches bam file
+    if len(infiles)==3:
+        bamfile, readsfile, rna_file = infiles
+    else:
+        bamfile = infiles[0]
+        rna_file = infiles[-1]
+        # Split file name up into directory and file name(/), then further split up by file name and file type and take file name (.)
+        bam_name = bamfile.split('/')[1].split('.')[0]
+        for i in range(1,len(infiles)-1):
+            nread_name = infiles[i].split('/')[1].split('.')[0]
+            if bam_name ==  nread_name:
+                readsfile = infiles[i]
+                break
+            else:
+                continue    
 
     nreads = ModuleTrna.getNumReadsFromReadsFile(readsfile)
     track = P.snip(os.path.basename(readsfile),
