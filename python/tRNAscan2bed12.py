@@ -64,7 +64,7 @@ def main(argv=None):
 
 
     # Using pandas module to convert csv into data frame
-    df = pd.read_csv(infile, header = None)
+    df = pd.read_csv(infile, header = None,sep='\t')
 
     row_number = len(df.index)
 

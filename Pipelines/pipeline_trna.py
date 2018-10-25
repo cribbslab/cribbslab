@@ -271,7 +271,7 @@ def count_reads(infile, outfile):
 
     P.run(statement)
 
-# Doesn't seem to work for both 
+# Add inputs adds all samples as infiles
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
@@ -295,9 +295,10 @@ def build_bam_stats(infiles, outfile):
 
     job_memory = "32G"
  
-   # If there are multiple files (things being sequenced??) must specify which .nreads file to use, so matches bam file
+    # Only one sample 
     if len(infiles)==3:
         bamfile, readsfile, rna_file = infiles
+    # If there are multiple samples, programme specifies which .nreads file to use, by matching name to bam file
     else:
         bamfile = infiles[0]
         rna_file = infiles[-1]
@@ -384,33 +385,6 @@ def genome_coverage(infiles, outfile):
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
-'''
-@active_if(PARAMS['index_run'])
-@follows(mkdir("tRNA-mapping.dir"))
-@originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
-def trna_scan_nuc(outfile):
-    """Scans genome using tRNAscanSE to identify nuclear tRNA"""
-
-    genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
-
-    statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
-
-# Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
-# Also the indexing of the genome is also quite time consuming so maybe have this paramaterisable to users can
-# specify if they have already indexed the genome previously.
-    job_memory = "50G"
-
-    P.run(statement)
-
-@active_if(not PARAMS['index_run'])
-@follows(mkdir("tRNA-mapping.dir"))
-def link_indexed_genome(outfile):
- #   """ User can specify to include indexed trna genomes and create soft link to them, rather than running slow trna scan """
-#    indexed_genome = os.path.join(PARAMS['index_genome_dir'], PARAMS['index_genome'] + ".nuc.csv")
-    os.symlink(indexed_genome, "tRNA-mapping.dir/tRNAscan.nuc.csv")
-# softlink to location of nuc.csv file
-
-'''
 ## Using if else statements: ####
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
@@ -446,25 +420,19 @@ def trna_scan_mito(infile, outfile):
 
     tmp_genome = P.get_temp_filename(".")
 
-   # statement = """
-    #            cat %(genome)s | perl -lane 'BEGIN{$c=0;}if(m/^>chrM$/){$c=1}elsif(m/^>/){$c=0;}print if $c' > %(tmp_genome)s &&
-     #           tRNAscan-SE -q -O  %(tmp_genome)s | sed 1,3d | cat | tr "\\t" "," > tRNA-mapping.dir/tRNAscan.chrM.csv &&
-      #          grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
-       #         cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
-        #        perl %(cribbslab)s/perl/tRNAscan2bed12.pl tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
-         #       """
-
 # For python script
 
     statement = """
                 cat %(genome)s | perl -lane 'BEGIN{$c=0;}if(m/^>chrM$/){$c=1}elsif(m/^>/){$c=0;}print if $c' > %(tmp_genome)s &&
-                tRNAscan-SE -q -O  %(tmp_genome)s |sed 1,3d | cat | tr "\\t" "," > tRNA-mapping.dir/tRNAscan.chrM.csv &&
-                grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
+                tRNAscan-SE -q -O  %(tmp_genome)s |sed 1,3d > tRNA-mapping.dir/tRNAscan.chrM.csv &&
+                grep -v chrM %(infile)s  > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
                 cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
                 python %(cribbslab)s/python/tRNAscan2bed12.py -I tRNA-mapping.dir/tRNAscan.csv -S %(outfile)s
                 """
 #  --info-file-out=%(trna_bed_info)s
     # add conversion for csv to bed file
+# | cat | tr "\t" "," >
+# /ifs/research-groups/botnar/proj025/analyses/test_trna_3/tRNA-mapping.dir/tRNAscan.nuc.csv
     P.run(statement)
     os.unlink(tmp_genome)
 
@@ -496,17 +464,9 @@ def create_pre_trna(infiles, outfile):
 
     bedfile_name = bedfile.replace(".bed12","")
 
-   # statement = """
-    #           perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile_name)s_pre-tRNAs.bed12 &&
-     #           bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile_name)s_pre-tRNAs.bed12 -fo %(outfile)s """
-
     statement = """
                python %(cribbslab)s/python/modBed12.py -I %(bedfile)s -S %(bedfile_name)s_pre-tRNAs.bed12 &&
                 bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile_name)s_pre-tRNAs.bed12 -fo %(outfile)s """
-
-
-
-
 
     P.run(statement)
 
@@ -569,7 +529,6 @@ def add_cca_tail(infile, outfile):
     """add CCA tail to the RNA chromosomes and remove pseudogenes"""
 
     statement = """python %(cribbslab)s/python/addCCA.py -I %(infile)s -S %(outfile)s"""
-   # statement = """perl %(cribbslab)s/perl/addCCA.pl  %(infile)s  %(outfile)s"""
 
     P.run(statement)
 
