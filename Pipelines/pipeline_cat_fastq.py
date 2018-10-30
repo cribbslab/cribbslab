@@ -68,8 +68,8 @@ Code
 import sys
 import os
 from ruffus import *
-from CGATCore import Pipeline as P
-import CGATCore.Experiment as E
+import cgatcore.pipeline as P
+import cgatcore.experiment as E
 
 # load options from the config file
 PARAMS = P.get_parameters(
