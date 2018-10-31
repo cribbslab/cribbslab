@@ -73,6 +73,7 @@ def get_repeat_gff(outfile):
 # Perform quality control of the fastq files
 ##############################################################
 
+
 INPUT_FORMATS = ["*.fastq.gz"]
 
 SEQUENCEFILES_REGEX = r"(\S+).(?P<suffix>fastq.gz)"
@@ -385,7 +386,7 @@ def genome_coverage(infiles, outfile):
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
-## Using if else statements: ####
+## Using if else statements
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_nuc(outfile):
@@ -398,8 +399,6 @@ def trna_scan_nuc(outfile):
         statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
 
 # Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
-# Also the indexing of the genome is also quite time consuming so maybe have this paramaterisable to users can
-# specify if they have already indexed the genome previously.
         job_memory = "50G"
 
         P.run(statement)
@@ -432,7 +431,6 @@ def trna_scan_mito(infile, outfile):
 #  --info-file-out=%(trna_bed_info)s
     # add conversion for csv to bed file
 # | cat | tr "\t" "," >
-# /ifs/research-groups/botnar/proj025/analyses/test_trna_3/tRNA-mapping.dir/tRNAscan.nuc.csv
     P.run(statement)
     os.unlink(tmp_genome)
 
@@ -540,7 +538,7 @@ def mature_trna_cluster(infile, outfile):
 
     cluster_info = outfile.replace("_cluster.fa","_clusterInfo.fa")
 
-    statement = "python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"
+    statement = """python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"""
 
     P.run(statement)
 
@@ -774,11 +772,23 @@ def coverage_plot(infiles, outfile):
     ModuleTrna.coverage(idx, coverage, outfile)
 '''
 
+@follows(count_features)
+@follows(mkdir("plots.dir"))
+@merge(count_features, "plots.dir/feature_count.png")
+def feature_count_plot(infiles, outfile):
+    ''' Create plot of proportion of gene type mapped for each sample'''
+
+    infiles = ":".join(infiles)
+    statement = """Rscript %(cribbslab)s/R/feature_count_plots.r
+                --input=%(infiles)s 
+                --output=%(outfile)s
+                """
+    P.run(statement)
 
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, feature_count_plot)
 def full():
     pass
 
