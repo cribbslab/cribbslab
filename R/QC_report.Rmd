@@ -1,0 +1,358 @@
+---
+title: "QC Report"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+author: "`r Sys.info()[[7]]`"
+runtime: shiny
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    theme: yeti
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align="center", warning=FALSE, message=FALSE)
+```
+
+```{r libraries, include=FALSE}
+library("ggplot2")
+library("tidyverse")
+library("optparse")
+library("ggpubr")
+library("knitr")
+library("fastqcr")
+library("shiny")
+library("kableExtra")
+```
+
+Report generated based on data located in `r getwd()` \  
+
+```{r samtool, include=FALSE}
+## Samtools ##
+
+sam_tools <- read_delim(file = "multiqc_data/multiqc_samtools_stats.txt", delim = '\t', col_names = TRUE)
+sam_tools <- dplyr::select(sam_tools, c("Sample", "raw_total_sequences", "reads_mapped", "reads_unmapped"))
+sam_tools <- gather(sam_tools, "Mapped/Unmapped", "Number", 3:4)
+sam_tools$`Mapped/Unmapped` <- ifelse(sam_tools$`Mapped/Unmapped` == "reads_mapped", "Mapped", "Unmapped" )
+
+sam_tools$Percentages <- 100*(sam_tools$Number / sam_tools$raw_total_sequences)
+sam_tools$Sample <- gsub("\\.stats$", "", sam_tools$Sample )
+```
+
+Samples: `r unique(sam_tools$Sample)` \n  
+
+Report generated at: `r format(Sys.time(), "%X %x ")` \n 
+
+# Samtools 
+
+SAM (Sequence Alignment/Map) format is a generic format for storing large nucleotide sequence alignments.
+
+SAM Tools provide various utilities for manipulating alignments in the SAM format, including sorting, merging, indexing and generating alignments in a per-position format (hosted on github: https://github.com/samtools/samtools)
+
+## Reads mapped stats {.tabset .tabset-pills}
+
+### Number of reads
+Mapped vs unmapped reads
+```{r samtools_plot1, include=TRUE, echo =FALSE}
+# Plots
+samtools_plot <- ggplot(data=sam_tools, aes(x=Sample, y=Number, fill=`Mapped/Unmapped`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+
+print(samtools_plot)
+```
+
+### Percentages
+Mapped vs unmapped reads
+```{r, samtools_plot2, include = TRUE, echo=FALSE}
+samtools_plot_percent <- ggplot(data=sam_tools, aes(x=Sample, y=Percentages, fill=`Mapped/Unmapped`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+
+print(samtools_plot_percent)
+```
+
+## Alignment Metrics 
+Alignment metrics from samtools stats
+
+```{r, kable_alignment_metrics, echo = FALSE, fig.align='center'}
+sam_table <- read_tsv("multiqc_data/multiqc_samtools_stats.txt")
+sam_table$Sample <- gsub("\\.stats$", "", sam_table$Sample)
+sam_table_subset <- sam_table %>% dplyr::select(contains("Sample"),  contains("total_sequences"), contains("reads"), contains("bases"), contains("pairs"), -contains("percent")) %>%
+  rename(total_sequences = raw_total_sequences, `mapped_paired` = reads_mapped_and_paired, `MQ0_reads` = reads_MQ0 ) %>% rename_all(~sub('reads_', '', .x)) %>%
+  rename_all(~sub('^pairs[^_]*_[^_]*_', '', .x))
+kable(sam_table_subset) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  scroll_box(width = "100%", height = "80%")
+#bootstrap_options = c("striped", "hover", "condensed", "responsive")
+```
+
+## Mapped reads per contig {.tabset .tabset-pills}
+The samtools idxstats tool counts the number of mapped reads per chromosome / contig. Chromosomes with < 0.1% of the total aligned reads are omitted from this plot
+
+```{r mapped_reads_contig, include = FALSE}
+contig <- read_delim(file = "multiqc_data/multiqc_samtools_idxstats.txt", delim = '\t', col_names = TRUE)
+contig <- contig %>% replace(is.na(.), 0)
+contig$total <- rowSums(contig[, -c(1)])
+
+# Chromosomes with < 0.1% of the total aligned reads are omitted from this plot
+contig <- contig %>% select_if(function(x) is.character(x) || sum(x) > sum(contig$total)*0.001)
+
+contig <- gather(contig, "Chromosome Name", "Count", -c(1, ncol(contig)))
+
+contig$Percentages <- 100*(contig$Count / contig$total)
+
+# Normalised
+contig_plot_norm <- ggplot(contig, aes(x = `Chromosome Name`, y = Percentages, group=Sample)) + geom_line(aes(color=Sample))  +
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+contig_plot_norm <- set_palette(contig_plot_norm, "lancet")
+
+# Count
+contig_plot_count <- ggplot(contig, aes(x = `Chromosome Name`, y = Count, group=Sample)) + geom_line(aes(color=Sample)) + 
+  theme_bw() + theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+contig_plot_count <- set_palette(contig_plot_count, "lancet")
+```
+
+### Normalised counts
+```{r mapped_reads_contig_norm, echo = FALSE, fig.height=5, fig.width=10}
+print(contig_plot_norm)
+```
+
+### Counts
+```{r mapped_reads_count, echo = FALSE, fig.height=5, fig.width=10}
+print(contig_plot_count)
+```
+
+
+# Bowtie {.tabset .tabset-pills}
+
+```{r bowtie_intro, include = FALSE}
+bowtie <- read_delim(file = "multiqc_data/multiqc_bowtie1.txt", delim = '\t', col_names = TRUE)
+bowtie <- dplyr::select(bowtie, -contains("percentage"))
+bowtie <- gather(bowtie, "Aligned/Not aligned", "Number", 3:4)
+bowtie$`Aligned/Not aligned` <- ifelse(bowtie$`Aligned/Not aligned` == "reads_aligned", "Aligned", "Not Aligned")
+bowtie$Percentages <- 100*(bowtie$Number / bowtie$reads_processed)
+
+# Number Plot
+bowtie_plot <- ggplot(data=bowtie, aes(x=Sample, y=Number, fill=`Aligned/Not aligned`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+
+# Percentage plot
+bowtie_plot_percent <- ggplot(data=bowtie, aes(x=Sample, y=Percentages, fill=`Aligned/Not aligned`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+```
+
+## Number of Reads
+```{r number_bowtie_plot, echo = FALSE}
+print(bowtie_plot)
+```
+
+## Percentages
+```{r percent_bowtie_plot, echo = FALSE}
+print(bowtie_plot_percent)
+```
+
+# Feature Counts 
+
+Subread featureCounts is a highly efficient general-purpose read summarization program that counts mapped reads for genomic features. Feature counts obtains data from bam files located in mapping.dir.
+
+## Gene IDs {.tabset .tabset-pills}
+
+```{r feature_counts, include = FALSE}
+file_paths = list.files(pattern='_small.tsv$', recursive=TRUE, full.names = TRUE)
+num_samples <- length(file_paths)
+feature_count_tibble_all_samples = NULL
+
+for(i in 1:num_samples){
+  path <- file_paths[i]
+  feature_count_tibble <-read_tsv(path, col_names = FALSE, skip = 2)
+  colnames(feature_count_tibble) <- c("GeneID", "NumberMapped")
+  # Get sample name 
+  sample <- stringr::str_match(path, ".*/.*/(.*?)/")[2]
+  feature_count_tibble$Sample <- sample
+  total_mapped <- sum(feature_count_tibble$NumberMapped)
+  feature_count_tibble$Percentages <- 100*(feature_count_tibble$NumberMapped / total_mapped)
+  feature_count_tibble_all_samples = bind_rows(feature_count_tibble_all_samples,feature_count_tibble)
+}
+fc_tibble_all_samples_nonzero <- dplyr::filter(feature_count_tibble_all_samples, NumberMapped != 0)
+fc_tibble_all_samples_nonzero<- fc_tibble_all_samples_nonzero[,c(3,1,2,4)]
+
+feature_count_plot <- ggplot(data=fc_tibble_all_samples_nonzero, aes(x=Sample, y=NumberMapped, fill=`GeneID`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+
+feature_count_plot_percent <- ggplot(data=fc_tibble_all_samples_nonzero, aes(x=Sample, y=Percentages, fill=`GeneID`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+  
+```
+
+### Number
+```{r fc_plot, echo =FALSE, fig.align='center'}
+print(feature_count_plot)
+```
+
+### Percent
+```{r fc_plot_percent, echo =FALSE, fig.align='center'}
+print(feature_count_plot_percent)
+```
+
+## Feature Count Table
+```{r, fc_table, echo=FALSE, fig.align='center'}
+kable(fc_tibble_all_samples_nonzero) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+## Assigned/ Unassigned {.tabset .tabset-pills}
+
+```{r fc_mapped, include = FALSE}
+fc_tibble <- read_tsv("multiqc_data/multiqc_featureCounts.txt", col_names = TRUE, skip = 0)
+fc_tibble <- fc_tibble[, !names(fc_tibble) %in% c("percent_assigned")]
+fc_tibble <- gather(fc_tibble, "Status", "Number", -c(1,2) )
+fc_tibble$Percentages <- 100*(fc_tibble$Number/fc_tibble$Total)
+fc_tibble <- fc_tibble[fc_tibble$Number != 0,]
+
+feature_count_plot <- ggplot(data=fc_tibble, aes(x=Sample, y=Number, fill=`Status`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+
+feature_count_plot_percent <- ggplot(data=fc_tibble, aes(x=Sample, y=Percentages, fill=`Status`)) +
+  geom_bar(stat="identity") + coord_flip() + fill_palette("lancet")
+  
+fc_tibble_final <- fc_tibble[, !names(fc_tibble) %in% c("Total")]
+```
+
+
+### Number of reads
+```{r fc_plot2, echo = FALSE}
+print(feature_count_plot)
+```
+`r kable(fc_tibble_final) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))`
+
+### Percentages
+```{r fc_plot3, echo = FALSE}
+print(feature_count_plot_percent)
+```
+
+`r kable(fc_tibble_final) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))`
+
+
+# Fast QC {.tabset .tabset-pills}
+FastQC is used to perfrom quality control checks on raw high throughput sequencing data. 
+
+``` {r, fast_QC, include = FALSE}
+
+## Fill data frames using fastqcr module and rbind samples together
+mean_quality_scores <- NULL
+per_sequence_qs <- NULL
+per_sequence_gc <- NULL
+per_base_n_content <- NULL
+sequence_duplication_levels <- NULL
+sequence_duplication_levels <- NULL
+overrepresented_sequences <- NULL
+file_paths = list.files(pattern='fastqc.zip$', recursive=TRUE, full.names = TRUE)
+for(i in 1:length(file_paths)){
+  sample_name <- sub(".*fastqc_pre.dir/(.*)?_fastqc\\.zip", "\\1", file_paths[i])
+  qc_sample <-qc_read(file= file_paths[i], modules = "all")
+  # K mer content and total deduplicated percentage removed and sample name added
+  qc_sample <- Map(cbind, qc_sample[1:12], Sample = sample_name)
+
+  mean_quality_scores <- rbind(mean_quality_scores, qc_sample[[3]])
+  per_sequence_qs <- rbind(per_sequence_qs, qc_sample[[5]] )
+  per_sequence_gc <- rbind(per_sequence_gc,qc_sample[[7]])
+  per_base_n_content <- rbind(per_base_n_content, qc_sample[[8]])
+  sequence_duplication_levels <- rbind(sequence_duplication_levels, qc_sample[[10]])
+  overrepresented_sequences_subset <- tibble(group = c("Top over-represented sequence", "Sum of remaining over-represented sequences"), Percentages = c(qc_sample[[11]]$Percentage[1], sum(qc_sample[[11]]$Percentage) - qc_sample[[11]]$Percentage[1]), Sample = sample_name )
+  overrepresented_sequences <- rbind(overrepresented_sequences, overrepresented_sequences_subset)
+}
+```
+
+```{r, initialise_FQ_plots, include = FALSE}
+## Initialise plots (to be printed individually)
+mean_q_scores_plot <- ggplot(data=mean_quality_scores, aes(x=Base, y=Mean, color=Sample)) +
+  geom_line(stat="identity") + labs(x = "Position (bp)", y= "Mean phred score") + expand_limits(y=0) +
+  theme_bw() 
+mean_q_scores_plot <- set_palette(mean_q_scores_plot, "lancet")
+
+per_sequence_qs_plot <- ggplot(data=per_sequence_qs, aes(x=Quality, y=Count, color=Sample)) +
+  geom_line(stat="identity") + labs(x = "Mean Sequence Quality (Phred Score)", y= "Count") + expand_limits(y=0) + theme_bw() 
+per_sequence_qs_plot <- set_palette(per_sequence_qs_plot, "lancet")
+
+per_sequence_gc_plot <- ggplot(data=per_sequence_gc, aes(x=`GC Content`, y=Count, color=Sample)) +
+  geom_line(stat="identity") + labs(x = "% GC Content", y= "Count") + theme_bw()   
+per_sequence_gc_plot <- set_palette(per_sequence_gc_plot, "lancet")
+
+per_base_n_content_plot <- ggplot(data=per_base_n_content, aes(x=Base, y=`N-Count`, color=Sample)) +
+  geom_line(stat="identity") + labs(x = "Position in read (bp)", y= "Percentage N-Count") + theme_bw()
+per_base_n_content_plot <- set_palette(per_base_n_content_plot, "lancet")
+
+
+overrepresented_sequences_plot <- ggplot(data=overrepresented_sequences, aes(x=Sample, y=Percentages, fill=group)) +
+  geom_bar(stat="identity") + labs(y = "Percentage of total sequences") + coord_flip() + fill_palette("lancet") + theme_bw() + ylim(0,100) + theme(legend.position="bottom") + labs(fill = "")
+
+## 
+sequence_duplication_levels$`Duplication Level` <- factor(sequence_duplication_levels$`Duplication Level`, as.character(sequence_duplication_levels$`Duplication Level`[1:16]))
+
+sequence_duplication_levels_plot <- ggplot(data=sequence_duplication_levels, aes(x=`Duplication Level`, y=`Percentage of total`, color = Sample, group =1)) + geom_line(stat="identity") + labs(x = "Sequence Duplication Level", y= "Percentage of Library") +ylim(0,100) +theme_bw()
+sequence_duplication_levels_plot <- set_palette(sequence_duplication_levels_plot, "lancet")
+```
+
+## Mean quality scores
+The mean quality value across each base position in the read.
+```{r, QC_mean_plot, echo = FALSE}
+print(mean_q_scores_plot)
+```
+
+## Per sequence quality scores
+The number of reads with average quality scores. Shows if a subset of reads has poor quality
+```{r, per_sequence_qs_plot, echo=FALSE}
+print(per_sequence_qs_plot)
+```
+
+## Per sequence GC content
+The average GC content of reads. Normal random library typically have a roughly normal distribution of GC content.
+```{r, per_sequence_gc_plot, echo=FALSE}
+print(per_sequence_gc_plot)
+```
+
+## Per base N content
+If a sequencer is unable to make a base call with sufficient confidence then it will normally substitute an N rather than a conventional base. This plot shows the percentage of base calls at each position for which an N was called. The documentation states that you get a warning if the number of Ns is above 5%. 
+```{r, per_base_n_count, echo=FALSE}
+print(per_base_n_content_plot)
+```
+
+## Sequence Duplicaton Levels
+The relative level of duplication found for every sequence.
+```{r, sequence_duplication_levels_plot, echo=FALSE}
+print(sequence_duplication_levels_plot)
+```
+
+## Overrepresented Sequences
+The total amount of overrepresented sequences found in each library
+```{r, overrepresented_sequences_plot, echo = FALSE}
+print(overrepresented_sequences_plot)
+```
+
+# Attempt shiny
+## Per base sequence content 
+The proportion of each base position for which each of the four normal DNA bases has been called.
+```{r, shiny, echo = FALSE}
+file_paths = list.files(pattern='fastqc.zip$', recursive=TRUE, full.names = TRUE)
+samples <- sub(".*fastqc_pre.dir/(.*)?_fastqc\\.zip", "\\1", file_paths)
+shinyApp(
+  ui = fluidPage(selectInput('my_dropdown','Choose Sample', samples),
+                plotOutput('my_plot')),
+  server = function(input, output) {
+    
+    op1 <- reactive({
+      per_base_content <- qc_read(file= paste("fastqc_pre.dir/", input$my_dropdown,"_fastqc.zip", sep = ""), modules = "all")[[6]] %>% gather("Nucleotide Base", "Percentage", 2:5)
+    })
+
+    output$my_plot <- renderPlot({
+          qc_sample <-qc_read(file= op1(), modules = "all")
+    per_base_content <- qc_sample[[6]]
+    per_base_content <- gather(per_base_content, "Nucleotide Base", "Percentage", 2:5)
+      ggplot(data=per_base_content, aes(x=Base, y=Percentage, fill=`Nucleotide Base`)) +
+        geom_bar(stat="identity") + labs(x = "Base Pair", title = input$my_dropdown)  + fill_palette("lancet")
+    })
+  }, 
+  options = list(height = 500)
+)
+
+```
