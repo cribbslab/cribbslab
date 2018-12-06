@@ -396,7 +396,7 @@ def trna_scan_nuc(outfile):
 
         genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
-        statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
+        statement = "tRNAscan-SE -q %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
 
 # Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
         job_memory = "50G"
@@ -772,11 +772,12 @@ def coverage_plot(infiles, outfile):
     ModuleTrna.coverage(idx, coverage, outfile)
 '''
 
+'''
 @follows(count_features)
 @follows(mkdir("plots.dir"))
 @merge(count_features, "plots.dir/feature_count.png")
 def feature_count_plot(infiles, outfile):
-    ''' Create plot of proportion of gene type mapped for each sample'''
+    '''''' Create plot of proportion of gene type mapped for each sample''''''
 
     infiles = ":".join(infiles)
     statement = """Rscript %(cribbslab)s/R/feature_count_plots.r
@@ -785,12 +786,37 @@ def feature_count_plot(infiles, outfile):
                 """
     P.run(statement)
 
+'''
+
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, feature_count_plot)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf)
 def full():
     pass
+
+@originate("multiqc_data")
+def run_multiqc(outfile):
+    ''' Run multiqc and overwrite any old reports '''
+
+    statement = '''multiqc -f . '''
+
+    P.run(statement)
+
+@follows(run_multiqc)
+@originate("QC_report.html")
+def run_rmarkdown(outfile):
+
+    cwd = os.getcwd()
+    statement = '''cp %(cribbslab)s/R/QC_report.Rmd . | Rscript -e "rmarkdown::render('QC_report.Rmd', clean=TRUE)" '''
+
+    P.run(statement)
+
+
+@follows(run_multiqc, run_rmarkdown)
+def build_report():
+    pass
+
 
 def main(argv=None):
     if argv is None:
