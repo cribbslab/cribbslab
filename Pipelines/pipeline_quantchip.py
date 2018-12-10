@@ -29,9 +29,9 @@ import sys
 import os
 import zipfile
 import sqlite3
-import CGATCore.Experiment as E
-import CGAT.BamTools.bamtools as Bamtools
-import CGATCore.Pipeline as P
+import cgatcore.experiment as E
+import cgat.BamTools.bamtools as Bamtools
+import cgatcore.pipeline as P
 import ModuleQuantchip as ModuleQuantchip
 
 # load options from the config file
