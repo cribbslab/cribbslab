@@ -81,8 +81,8 @@ def main(argv=None):
 
         # Unique ID
         u_id = str(chr_num +'.tRNA' +str(int(df.iloc[i,1])) + '-' + str(df.iloc[i,4]) +str( df.iloc[i,5]) + '-' + str(df.iloc[i,9]))
-        # Last part of unique ID either pseudo or nan, replace nan with -
-        u_id = u_id.replace("nan", "-")
+        # Last part of unique ID either pseudo or nan, replace nan with space
+        u_id = u_id.replace("nan", "")
         block_start = ''
         block_size = ''
     
