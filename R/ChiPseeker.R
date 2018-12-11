@@ -1,10 +1,7 @@
 # This script parses the narrowPeaks from control and treatment file output from macs2 and saves
 # the data as two seperate R objects.
 
-setwd(".")
-
-library(rtracklayer)
-library(optparse)
+suppressPackageStartupMessages(library(optparse))
 
 option_list <- list(
 	    make_option(c("--control"), default="must_specify",
@@ -22,6 +19,7 @@ print(opt)
 dir_control <- opt$control
 dir_treatment <- opt$treatment
 
+suppressPackageStartupMessages(library(rtracklayer))
 
 extracols <- c(signalValue = "numeric", pvalue = "numeric", qValue = "numeric", peak = "integer")
 
