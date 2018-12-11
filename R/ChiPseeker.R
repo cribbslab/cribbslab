@@ -31,6 +31,6 @@ peaks_control <- lapply(Sys.glob(dir_control), function(i){
 peaks_treatment <- lapply(Sys.glob(dir_treatment), function(i){
   import(i, format= "BED", extraCols= extracols)})
 
-save.image(file="ChIPseeker.Rdata")
+save(peaks_control, peaks_treatment, file="ChIPseeker.Rdata")
 
 
