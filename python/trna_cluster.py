@@ -1,15 +1,14 @@
-"""trna_generate_bed.py - generate a bed file from a fasta file of pre-tRNAs
+"""trna_cluster.py - generate a bed file from a fasta file of pre-tRNAs
 ================================================================
 
 Purpose
 -------
+Mature tRNA clustering - only identical tRNAs are clustered.
+This script takes a fasta file of mature tRNAs
+with CCA tails as input and outputs a fasta file of identical sequences clustered
+together with a cluster number and chromsomal coordinates for one of the sequences.
 
-This script takes as an input a fasta file of pre-tRNAs and will
-generate a bed file using the name of each fasta read as the
-chromosome name and will output the coordinates of the mature
-tRNAs as a bed file.
-
-
+Task: mature_trna_cluster
 Usage
 -----
 
