@@ -44,6 +44,22 @@ Samples: `r unique(sam_tools$Sample)` \n
 
 Report generated at: `r format(Sys.time(), "%X %x ")` \n 
 
+# General stats
+MultiQC general stats from Bowtie, featureCounts, FastQC and Samtools. 
+```{r, general_stats, echo = FALSE}
+# General stats
+general <- read_delim(file = "multiqc_data/multiqc_general_stats.txt", delim = '\t', col_names = TRUE)
+colnames(general) <- c("Sample Name", "Bowtie: % Reads Aligned", "Bowtie: Reads Aligned", "FC: % Assigned", "FC: Assigned", "FastQC: % Duplicates", "FastQC: % GC", "FastQC: Average Sequence Length", "FastQC: % Fails", "FastQC: Total Sequences", "Samtools: % Error Rate", "Samtools: Non Primary Allignments", "Samtools: Reads Mapped", "Samtools: % Reads Mapped", "Samtools: Raw Total Sequences")
+general$`Samtools: % Error Rate` <- as.numeric(general$`Samtools: % Error Rate`)*100
+#general <- general %>% replace(is.na(.), "-")
+options(knitr.kable.NA = '')
+kable(general, digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  scroll_box(width = "100%", height = "80%")
+
+```
+FC: featureCounts
+
 # Samtools 
 
 SAM (Sequence Alignment/Map) format is a generic format for storing large nucleotide sequence alignments.
@@ -233,7 +249,7 @@ print(feature_count_plot_percent)
 `r kable(fc_tibble_final) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))`
 
 
-# Fast QC {.tabset .tabset-pills}
+# Fast QC 
 FastQC is used to perfrom quality control checks on raw high throughput sequencing data. 
 
 ``` {r, fast_QC, include = FALSE}
@@ -246,6 +262,7 @@ per_base_n_content <- NULL
 sequence_duplication_levels <- NULL
 sequence_duplication_levels <- NULL
 overrepresented_sequences <- NULL
+adapter_content <- NULL
 file_paths = list.files(pattern='fastqc.zip$', recursive=TRUE, full.names = TRUE)
 for(i in 1:length(file_paths)){
   sample_name <- sub(".*fastqc_pre.dir/(.*)?_fastqc\\.zip", "\\1", file_paths[i])
@@ -258,6 +275,8 @@ for(i in 1:length(file_paths)){
   per_sequence_gc <- rbind(per_sequence_gc,qc_sample[[7]])
   per_base_n_content <- rbind(per_base_n_content, qc_sample[[8]])
   sequence_duplication_levels <- rbind(sequence_duplication_levels, qc_sample[[10]])
+  adapter_content <- rbind(adapter_content, qc_sample[[12]])
+  
   overrepresented_sequences_subset <- tibble(group = c("Top over-represented sequence", "Sum of remaining over-represented sequences"), Percentages = c(qc_sample[[11]]$Percentage[1], sum(qc_sample[[11]]$Percentage) - qc_sample[[11]]$Percentage[1]), Sample = sample_name )
   overrepresented_sequences <- rbind(overrepresented_sequences, overrepresented_sequences_subset)
 }
@@ -290,7 +309,22 @@ overrepresented_sequences_plot <- ggplot(data=overrepresented_sequences, aes(x=S
 sequence_duplication_levels$`Duplication Level` <- factor(sequence_duplication_levels$`Duplication Level`, as.character(sequence_duplication_levels$`Duplication Level`[1:16]))
 
 sequence_duplication_levels_plot <- ggplot(data=sequence_duplication_levels, aes(x=`Duplication Level`, y=`Percentage of total`, color = Sample, group =1)) + geom_line(stat="identity") + labs(x = "Sequence Duplication Level", y= "Percentage of Library") +ylim(0,100) +theme_bw()
-sequence_duplication_levels_plot <- set_palette(sequence_duplication_levels_plot, "lancet")
+sequence_duplication_levels_plot <- set_palette(sequence_duplication_levels_plot, "lancet") 
+
+# Adapter content
+# Cumulative
+adapter_content_cumulative <- adapter_content
+adapter_content_cumulative$total_adapter <- rowSums(adapter_content_cumulative[,2:6] )
+adapter_content_cumulative <- adapter_content_cumulative %>% select(-contains(" Adapter"), -contains("Nextera"))
+adapter_content_cumulative_plot <- ggplot(data= adapter_content_cumulative, aes(x= Position, y= total_adapter, color = Sample)) + geom_line() + theme_bw() + labs(x = "Position (bp)", y = "Percentage of Sequences")
+adapter_content_cumulative_plot <- set_palette(adapter_content_cumulative_plot, "lancet")
+
+# Each adapter type individually
+adapter_content <- gather(adapter_content, "Adapter", "Percentage_of_sequences", 2:6)
+adapter_content_plot <- ggplot(data= adapter_content, aes(x= Position, y= Percentage_of_sequences, color = Sample, fill = Sample, shape = Adapter, 
+  group=interaction(Sample, Adapter))) + 
+  geom_point() + geom_line() + theme_bw() + labs(x = "Position (bp)", y = "Percentage of Sequences")
+adapter_content_plot <- set_palette(adapter_content_plot, "lancet")
 ```
 
 ## Mean quality scores
@@ -329,8 +363,22 @@ The total amount of overrepresented sequences found in each library
 print(overrepresented_sequences_plot)
 ```
 
-# Attempt shiny
-## Per base sequence content 
+## Adapter content {.tabset .tabset-pills}
+
+### Specific adapter content 
+The percentage count of the proportion of your library which has seen individual types of adaptor sequences at each position. 
+```{r, adapter_content_plot, echo = FALSE}
+print(adapter_content_plot)
+```
+
+### Adapter content cumulative
+The cumulative percentage count of the proportion of your library which has seen each of the adapter sequences at each position. 
+```{r, adapter_content_plot_cumsum, echo = FALSE}
+print(adapter_content_cumulative_plot)
+```
+
+## Per base sequence content
+### Shiny attempt
 The proportion of each base position for which each of the four normal DNA bases has been called.
 ```{r, shiny, echo = FALSE}
 file_paths = list.files(pattern='fastqc.zip$', recursive=TRUE, full.names = TRUE)
