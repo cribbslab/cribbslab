@@ -1,3 +1,7 @@
+# This script will be ran for each bamfile and shift the peaks, perform QC pltting
+# and then split into nucleosome free, mononucleosome, dinucleosome, and trinucleosome.
+# 
+
 library(ATACseqQC)
 library(BSgenome.Hsapiens.UCSC.hg19)
 
@@ -23,3 +27,7 @@ gal <- readBamFile(bamfile, tag=tags, which=which, asMates=TRUE, bigFile=TRUE)
 gal1 <- shiftGAlignmentsList(gal)
 shiftedBamfile <- file.path(outPath, "shifted.bam")
 export(gal1, shiftedBamfile)
+
+
+
+
