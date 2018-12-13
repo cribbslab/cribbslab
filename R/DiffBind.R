@@ -31,7 +31,7 @@ samples <- read.csv(design)
 names(samples)
 
 # Construct the dba object
-dba_object <- dba(sampleSheet = samples, dir = filepath) 
+dba_object <- dba(sampleSheet = samples, dir=filepath) 
 
 dba_object
 
