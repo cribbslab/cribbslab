@@ -29,9 +29,9 @@ import sys
 import os
 import zipfile
 import sqlite3
-import CGATCore.Experiment as E
-import CGAT.BamTools.bamtools as Bamtools
-import CGATCore.Pipeline as P
+import cgatcore.experiment as E
+import cgat.BamTools.bamtools as Bamtools
+import cgatcore.pipeline as P
 import ModuleQuantchip as ModuleQuantchip
 
 # load options from the config file
@@ -130,6 +130,7 @@ def buildBedGraph(infile, outfile):
     -g %(contig_sizes)s
     -bg
     -scale %(scale)f
+    -strand
     > %(tmpfile)s &&
     sort -k1,1 -k2,2n -o %(tmpfile2)s %(tmpfile)s &&
     cat %(tmpfile2)s | grep chr  > %(outfile)s &&
@@ -157,8 +158,8 @@ def makeTagDirectory(infile, outfile):
 
     P.run(statement)
 
-@transform(makeTagDirectory,
-           regex("\S+/(\S+).txt"),
+@transform(buildBedGraph,
+           regex("bedGraph.dir/(\S+).bedgraph"),
            add_inputs([BEDFILES]),
            r"Hist.dir/\1.txt")
 def annotatePeaksBed(infiles, outfile):
@@ -166,14 +167,11 @@ def annotatePeaksBed(infiles, outfile):
     '''
     This will create a histogram txt output of the data centred on tss
     '''
-    infile = infiles[0]
-    infile = os.path.basename(infile)
-    infile = infile.replace(".txt", "")
-
+    bedGraph = infiles[0]
 
     bedfile = infiles[1][0][0]
     statement = '''
-                annotatePeaks.pl %(bedfile)s hg19 -d %(infile)s %(homer_options)s  > %(outfile)s
+                annotatePeaks.pl %(bedfile)s hg19 -bedGraph %(bedGraph)s %(homer_options)s  > %(outfile)s
                 '''
 
     P.run(statement)
