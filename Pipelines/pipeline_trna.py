@@ -381,6 +381,8 @@ def genome_coverage(infiles, outfile):
 
     statement = """bedtools genomecov -ibam %(infile)s -g %(genome)s > %(outfile)s"""
 
+# Maybe should use hg38_mature.fa instead, would have to add input from add_cca_tail
+# should use -d to look at every position
     P.run(statement)
 
 ################################################
