@@ -9,7 +9,9 @@ suppressPackageStartupMessages(library(optparse))
 
 option_list <- list(
 	    make_option(c("--design"), default="must_specify",
-	    help="This specifies the design file according to the design file for diffbind.")
+	    help="This specifies the design file according to the design file for diffbind."),
+	    make_option(c("--output"), default="must_specify",
+	    help="This specifies the output Rdata object name.")
 	    
 )
 
@@ -43,4 +45,5 @@ dba_object
 # Plot correlation heatmap based on the counts
 plot(dba_object)
 
-save(dba_object, file="dba_object.Rdata")
+output <- paste(opt$output, ".Rdata", sep="")
+save(dba_object, file=output)

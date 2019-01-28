@@ -8,7 +8,7 @@
 ################################################################
 
 # Location of the cribbslab directory
-cribbslab: '/ifs/projects/adam/cribbslab/'
+cribbslab: '/ifs/devel/annajb/tRNA_mapping/cribbslab/'
 
 # Project name
 projectname: proj001
@@ -48,15 +48,30 @@ ucsc:
 ########################################################
 
 genome: hg19
-
-
-
-
+# The folder that the genome is located in
+genome_dir: /ifs/mirror/genomes/index/
 
 ##########################################################
-# 
+# location of a bowtie2 indexed genome
+# for infomation on how to build this please refer to: http://bowtie-bio.sourceforge.net/bowtie2/manual.shtml#getting-started-with-bowtie-2-lambda-phage-example
 ##########################################################
 
+bowtie:
+    genome : hg19
+    genome_dir: /ifs/mirror/genomes/bowtie/
+    options: --local --very-sensitive-local
+
 ###########################################################
-# 
-###########################################################
+# tRNA scan options
+# Run trna scan if 1, otherwise include location of indexed genome.
+############################################################
+index:
+
+# Run tRNA scan
+    run : 0
+
+# Location of pre-indexed genome 
+    genome_dir : /ifs/research-groups/botnar/proj025/analyses/
+    genome : tRNAscan_h38
+
+

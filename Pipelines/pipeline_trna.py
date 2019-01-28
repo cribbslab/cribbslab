@@ -69,10 +69,10 @@ def get_repeat_gff(outfile):
         remove_contigs_regex=PARAMS["ucsc_remove_contigs"],
         job_memory="3G")
 
-
 ##############################################################
 # Perform quality control of the fastq files
 ##############################################################
+
 
 INPUT_FORMATS = ["*.fastq.gz"]
 
@@ -87,11 +87,9 @@ def fastqc_pre(infile, outfile):
     Runs fastQC on each input file
     """
 
-    statement = """fastqc -q -o fastqc_pre.dir/ %(infile)s
-                """
+    statement = "fastqc -q -o fastqc_pre.dir/ %(infile)s"
 
     P.run(statement)
-
 
 @follows(fastqc_pre)
 @follows(mkdir("processed.dir"))
@@ -169,10 +167,11 @@ def map_with_bowtie(infiles, outfile):
     over RNA gene_biotypes
     """
     fastq, genome = infiles
+    tmp_fastq = P.get_temp_filename(".")
     temp_file = P.get_temp_filename(".")
     genome = genome.replace(".fa", "")
 
-    statement = """bowtie -k 10 -v 2 --best --strata --sam  %(genome)s %(fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
+    statement = """gzip -dc %(fastq)s > %(tmp_fastq)s && bowtie -k 10 -v 2 --best --strata --sam  %(genome)s  %(tmp_fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s &&
                    samtools index %(outfile)s
                 """
@@ -273,7 +272,7 @@ def count_reads(infile, outfile):
 
     P.run(statement)
 
-
+# Add inputs adds all samples as infiles
 @follows(mkdir("genome_statistics.dir"))
 @transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
@@ -296,8 +295,23 @@ def build_bam_stats(infiles, outfile):
     '''
 
     job_memory = "32G"
-
-    bamfile, readsfile, rna_file = infiles
+ 
+    # Only one sample 
+    if len(infiles)==3:
+        bamfile, readsfile, rna_file = infiles
+    # If there are multiple samples, programme specifies which .nreads file to use, by matching name to bam file
+    else:
+        bamfile = infiles[0]
+        rna_file = infiles[-1]
+        # Split file name up into directory and file name(/), then further split up by file name and file type and take file name (.)
+        bam_name = bamfile.split('/')[1].split('.')[0]
+        for i in range(1,len(infiles)-1):
+            nread_name = infiles[i].split('/')[1].split('.')[0]
+            if bam_name ==  nread_name:
+                readsfile = infiles[i]
+                break
+            else:
+                continue    
 
     nreads = ModuleTrna.getNumReadsFromReadsFile(readsfile)
     track = P.snip(os.path.basename(readsfile),
@@ -367,27 +381,33 @@ def genome_coverage(infiles, outfile):
 
     statement = """bedtools genomecov -ibam %(infile)s -g %(genome)s > %(outfile)s"""
 
+# Maybe should use hg38_mature.fa instead, would have to add input from add_cca_tail
+# should use -d to look at every position
     P.run(statement)
 
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
-
+## Using if else statements
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_nuc(outfile):
-    """Scans genome using tRNAscanSE to identify nuclear tRNA"""
+    if( PARAMS['index_run']):
+        """Scans genome using tRNAscanSE to identify nuclear tRNA"""
 
-    genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
-    statement = "tRNAscan-SE -q -E  %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
+        genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
+
+        statement = "tRNAscan-SE -q %(genome)s 2> tRNA-mapping.dir/tRNAscan.nuc.log | sed 1,3d > %(outfile)s"
 
 # Need to modify if working with non eukaryotic organisms in pipeline.yml- -E to -U
-# Also the indexing of the genome is also quite time consuming so maybe have this paramaterisable to users can
-# specify if they have already indexed the genome previously.
-    job_memory = "50G"
+        job_memory = "50G"
 
-    P.run(statement)
+        P.run(statement)
+    else:
+        indexed_genome = os.path.join(PARAMS['index_genome_dir'], PARAMS['index_genome'] + ".nuc.csv")
+        os.symlink(indexed_genome, 'tRNA-mapping.dir/tRNAscan.nuc.csv')
+# softlink to location of nuc.csv file
 
 
 @transform(trna_scan_nuc,
@@ -401,14 +421,18 @@ def trna_scan_mito(infile, outfile):
 
     tmp_genome = P.get_temp_filename(".")
 
+# For python script
+
     statement = """
                 cat %(genome)s | perl -lane 'BEGIN{$c=0;}if(m/^>chrM$/){$c=1}elsif(m/^>/){$c=0;}print if $c' > %(tmp_genome)s &&
-                tRNAscan-SE -q -O  %(tmp_genome)s | sed 1,3d > tRNA-mapping.dir/tRNAscan.chrM.csv &&
-                grep -v chrM %(infile)s > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
+                tRNAscan-SE -q -O  %(tmp_genome)s |sed 1,3d > tRNA-mapping.dir/tRNAscan.chrM.csv &&
+                grep -v chrM %(infile)s  > tRNA-mapping.dir/tRNAscan.nuc_mod.csv &&
                 cat tRNA-mapping.dir/tRNAscan.nuc_mod.csv tRNA-mapping.dir/tRNAscan.chrM.csv > tRNA-mapping.dir/tRNAscan.csv &&
-                perl %(cribbslab)s/perl/tRNAscan2bed12.pl tRNA-mapping.dir/tRNAscan.csv tRNA-mapping.dir/tRNAscan.bed12
+                python %(cribbslab)s/python/tRNAscan2bed12.py -I tRNA-mapping.dir/tRNAscan.csv -S %(outfile)s
                 """
+#  --info-file-out=%(trna_bed_info)s
     # add conversion for csv to bed file
+# | cat | tr "\t" "," >
     P.run(statement)
     os.unlink(tmp_genome)
 
@@ -441,7 +465,7 @@ def create_pre_trna(infiles, outfile):
     bedfile_name = bedfile.replace(".bed12","")
 
     statement = """
-               perl %(cribbslab)s/perl/modBed12.pl %(bedfile)s %(bedfile_name)s_pre-tRNAs.bed12 &&
+               python %(cribbslab)s/python/modBed12.py -I %(bedfile)s -S %(bedfile_name)s_pre-tRNAs.bed12 &&
                 bedtools getfasta -name -split -s -fi %(genome)s -bed %(bedfile_name)s_pre-tRNAs.bed12 -fo %(outfile)s """
 
     P.run(statement)
@@ -504,7 +528,7 @@ def create_mature_trna(infiles,outfile):
 def add_cca_tail(infile, outfile):
     """add CCA tail to the RNA chromosomes and remove pseudogenes"""
 
-    statement = """perl %(cribbslab)s/perl/addCCA.pl %(infile)s %(outfile)s"""
+    statement = """python %(cribbslab)s/python/addCCA.py -I %(infile)s -S %(outfile)s"""
 
     P.run(statement)
 
@@ -516,7 +540,7 @@ def mature_trna_cluster(infile, outfile):
 
     cluster_info = outfile.replace("_cluster.fa","_clusterInfo.fa")
 
-    statement = "python /ifs/projects/adam/cribbslab/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"
+    statement = """python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"""
 
     P.run(statement)
 
@@ -632,8 +656,8 @@ def post_mapping_cluster(infiles, outfile):
     P.run(statement)
 
 
-@transform(post_mapping_cluster,
-           regex("(\S+).fa"),
+@transform(mature_trna_cluster,
+           regex("tRNA-mapping.dir/(\S+).fa"),
            r"\1_contig.tsv")
 def get_contig_cluster(infile, outfile):
     """This will generate a contig file of the cluster genome"""
@@ -750,6 +774,21 @@ def coverage_plot(infiles, outfile):
     ModuleTrna.coverage(idx, coverage, outfile)
 '''
 
+'''
+@follows(count_features)
+@follows(mkdir("plots.dir"))
+@merge(count_features, "plots.dir/feature_count.png")
+def feature_count_plot(infiles, outfile):
+    '''''' Create plot of proportion of gene type mapped for each sample''''''
+
+    infiles = ":".join(infiles)
+    statement = """Rscript %(cribbslab)s/R/feature_count_plots.r
+                --input=%(infiles)s 
+                --output=%(outfile)s
+                """
+    P.run(statement)
+
+'''
 
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
@@ -757,6 +796,29 @@ def coverage_plot(infiles, outfile):
          keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf)
 def full():
     pass
+
+@originate("multiqc_data")
+def run_multiqc(outfile):
+    ''' Run multiqc and overwrite any old reports '''
+
+    statement = '''multiqc -f . '''
+
+    P.run(statement)
+
+@follows(run_multiqc)
+@originate("QC_report.html")
+def run_rmarkdown(outfile):
+
+    cwd = os.getcwd()
+    statement = '''cp %(cribbslab)s/R/QC_report.Rmd . | Rscript -e "rmarkdown::render('QC_report.Rmd', clean=TRUE)" '''
+
+    P.run(statement)
+
+
+@follows(run_multiqc, run_rmarkdown)
+def build_report():
+    pass
+
 
 def main(argv=None):
     if argv is None:
