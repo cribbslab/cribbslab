@@ -17,7 +17,7 @@ Requires:
 Pipeline output
 ===============
 
-The output is a series of annotaed peak output files from homer that can be plotted using an R script (still in development)
+The output is a series of annotaed peak output files from homer that can be plotted using an R script
 
 Code
 ====
