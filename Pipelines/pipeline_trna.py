@@ -381,20 +381,39 @@ def genome_coverage(infiles, outfile):
 
     statement = """bedtools genomecov -ibam %(infile)s -g %(genome)s > %(outfile)s"""
 
-# Maybe should use hg38_mature.fa instead, would have to add input from add_cca_tail
+# Maybe should use hg38_mature.fa instead, would  add input from add_cca_tail
 # should use -d to look at every position
     P.run(statement)
 
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
+
+@active_if(PARAMS['trna_scan_load'])
+@follows(mkdir("tRNAscan_load.dir"))
+@originate("tRNAscantest.nuc.tsv")
+def trna_scan_load(outfile):
+    """ If already downloaded trna nuclear genome from http://gtrnadb.ucsc.edu/index.html """
+
+    trna_folder = os.path.join(PARAMS['trna_scan_path'], PARAMS['trna_scan_folder'] + ".tar.gz")
+    genome = PARAMS['trna_scan_folder']
+    trna_file = "tRNAscan_load.dir/" + genome  + "-detailed.out"
+    tmp_genome = P.get_temp_filename(".")
+
+    statement = """ tar -xzf %(trna_folder)s -C tRNAscan_load.dir && 
+    sed 1,3d %(trna_file)s > %(tmp_genome)s && 
+    awk '{$10=$11=$12=$13=$14=$15=""; print $0}' %(tmp_genome)s > %(outfile)s
+    """
+
+    P.run(statement)
+
+
 ## Using if else statements
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_nuc(outfile):
+    """Scans genome using tRNAscanSE to identify nuclear tRNA"""
     if( PARAMS['index_run']):
-        """Scans genome using tRNAscanSE to identify nuclear tRNA"""
-
 
         genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
@@ -408,6 +427,7 @@ def trna_scan_nuc(outfile):
         indexed_genome = os.path.join(PARAMS['index_genome_dir'], PARAMS['index_genome'] + ".nuc.csv")
         os.symlink(indexed_genome, 'tRNA-mapping.dir/tRNAscan.nuc.csv')
 # softlink to location of nuc.csv file
+# Need option if downloaded from database
 
 
 @transform(trna_scan_nuc,
@@ -630,10 +650,10 @@ def keep_mature_trna(infiles, outfile):
 
     P.run(statement)
 
-
 #################################################
 # Post processing of mapping data
 #################################################
+
 @follows(mkdir("post_mapping_bams.dir"))
 @transform(keep_mature_trna,
            regex("tRNA-mapping.dir/(\S+)_filtered.fastq.gz"),
