@@ -797,11 +797,12 @@ def feature_count_plot(infiles, outfile):
 def full():
     pass
 
-@originate("multiqc_data")
+@originate("multiqc_data.dir")
 def run_multiqc(outfile):
     ''' Run multiqc and overwrite any old reports '''
 
-    statement = '''multiqc -f . '''
+    statement = '''export LC_ALL=en_GB.UTF-8 && export LANG=en_GB.UTF-8 && multiqc -f . &&
+                   mv multiqc_report.html multiqc_data.dir'''
 
     P.run(statement)
 
