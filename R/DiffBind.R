@@ -10,8 +10,8 @@ suppressPackageStartupMessages(library(optparse))
 option_list <- list(
 	    make_option(c("--design"), default="must_specify",
 	    help="This specifies the design file according to the design file for diffbind."),
-	    make_option(c("--filepath"), default="must_specify",
-	                help="This specifies the file path to the input files. The PeakFiles, bamReads and bamControl will have the file path prepended to names")
+	    make_option(c("--output"), default="must_specify",
+	    help="This specifies the output Rdata object name.")
 	    
 )
 
@@ -22,7 +22,6 @@ print(opt)
 
 
 design <- opt$design
-filepath <- opt$filepath
 
 suppressPackageStartupMessages(library(DiffBind))
 
@@ -31,7 +30,7 @@ samples <- read.csv(design)
 names(samples)
 
 # Construct the dba object
-dba_object <- dba(sampleSheet = samples, dir=filepath) 
+dba_object <- dba(sampleSheet = samples) 
 
 dba_object
 
@@ -46,4 +45,5 @@ dba_object
 # Plot correlation heatmap based on the counts
 plot(dba_object)
 
-save(dba_object, file="dba_object.Rdata")
+output <- paste(opt$output, ".Rdata", sep="")
+save(dba_object, file=output)

@@ -130,7 +130,6 @@ def buildBedGraph(infile, outfile):
     -g %(contig_sizes)s
     -bg
     -scale %(scale)f
-    -strand
     > %(tmpfile)s &&
     sort -k1,1 -k2,2n -o %(tmpfile2)s %(tmpfile)s &&
     cat %(tmpfile2)s | grep chr  > %(outfile)s &&
