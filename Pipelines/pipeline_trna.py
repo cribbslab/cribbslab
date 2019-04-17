@@ -87,7 +87,7 @@ def fastqc_pre(infile, outfile):
     Runs fastQC on each input file
     """
 
-    statement = "fastqc -q -o fastqc_pre.dir/ %(infile)s"
+    statement = "fastqc -q -o fastqc_pre.dir/%(infile)s"
 
     P.run(statement)
 
@@ -793,7 +793,7 @@ def feature_count_plot(infiles, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features)
 def full():
     pass
 
