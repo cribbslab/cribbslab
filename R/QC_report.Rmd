@@ -23,7 +23,7 @@ library("ggpubr")
 library("knitr")
 library("fastqcr")
 library("shiny")
-library("kableExtra")
+library(DT)
 ```
 
 Report generated based on data located in `r getwd()` \  
@@ -52,11 +52,7 @@ general <- read_delim(file = "multiqc_data/multiqc_general_stats.txt", delim = '
 colnames(general) <- c("Sample Name", "Bowtie: % Reads Aligned", "Bowtie: Reads Aligned", "FC: % Assigned", "FC: Assigned", "FastQC: % Duplicates", "FastQC: % GC", "FastQC: Average Sequence Length", "FastQC: % Fails", "FastQC: Total Sequences", "Samtools: % Error Rate", "Samtools: Non Primary Allignments", "Samtools: Reads Mapped", "Samtools: % Reads Mapped", "Samtools: Raw Total Sequences")
 general$`Samtools: % Error Rate` <- as.numeric(general$`Samtools: % Error Rate`)*100
 #general <- general %>% replace(is.na(.), "-")
-options(knitr.kable.NA = '')
-kable(general, digits = 2) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
-  scroll_box(width = "100%", height = "80%")
-
+datatable(general) 
 ```
 FC: featureCounts
 
@@ -96,10 +92,7 @@ sam_table$Sample <- gsub("\\.stats$", "", sam_table$Sample)
 sam_table_subset <- sam_table %>% dplyr::select(contains("Sample"),  contains("total_sequences"), contains("reads"), contains("bases"), contains("pairs"), -contains("percent")) %>%
   rename(total_sequences = raw_total_sequences, `mapped_paired` = reads_mapped_and_paired, `MQ0_reads` = reads_MQ0 ) %>% rename_all(~sub('reads_', '', .x)) %>%
   rename_all(~sub('^pairs[^_]*_[^_]*_', '', .x))
-kable(sam_table_subset) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
-  scroll_box(width = "100%", height = "80%")
-#bootstrap_options = c("striped", "hover", "condensed", "responsive")
+datatable(sam_table_subset)
 ```
 
 ## Mapped reads per contig {.tabset .tabset-pills}
@@ -212,8 +205,7 @@ print(feature_count_plot_percent)
 
 ## Feature Count Table
 ```{r, fc_table, echo=FALSE, fig.align='center'}
-kable(fc_tibble_all_samples_nonzero) %>%
-  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+datatable(fc_tibble_all_samples_nonzero) 
 ```
 
 ## Assigned/ Unassigned {.tabset .tabset-pills}
@@ -239,14 +231,14 @@ fc_tibble_final <- fc_tibble[, !names(fc_tibble) %in% c("Total")]
 ```{r fc_plot2, echo = FALSE}
 print(feature_count_plot)
 ```
-`r kable(fc_tibble_final) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))`
+`r datatable(fc_tibble_final)`
 
 ### Percentages
 ```{r fc_plot3, echo = FALSE}
 print(feature_count_plot_percent)
 ```
 
-`r kable(fc_tibble_final) %>% kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))`
+`r datatable(fc_tibble_final)`
 
 
 # Fast QC 
