@@ -391,7 +391,7 @@ def genome_coverage(infiles, outfile):
 
 @active_if(PARAMS['trna_scan_load'])
 @follows(mkdir("tRNAscan_load.dir"))
-@originate("tRNAscantest.nuc.tsv")
+@originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_load(outfile):
     """ If already downloaded trna nuclear genome from http://gtrnadb.ucsc.edu/index.html """
 
@@ -401,11 +401,16 @@ def trna_scan_load(outfile):
     tmp_genome = P.get_temp_filename(".")
 
     statement = """ tar -xzf %(trna_folder)s -C tRNAscan_load.dir && 
-    sed 1,3d %(trna_file)s > %(tmp_genome)s && 
-    awk '{$10=$11=$12=$13=$14=$15=""; print $0}' %(tmp_genome)s > %(outfile)s
+    cut -f1-9,16 %(trna_file)s | sed 1,3d > %(tmp_genome)s && 
+    awk -F"\\t" '{ $10 = ($10 == "pseudo" ? $10 : "") } 1' OFS=, %(tmp_genome)s | sed 's/,/\\t/g' > %(outfile)s   
     """
 
     P.run(statement)
+
+#awk '{$10=$11=$12=$13=$14=$15=""; print $0}' %(tmp_genome)s > %(outfile)s
+#awk '{gsub("high confidence set","hcs");gsub("secondary filtered","sf");gsub("isotype mismatch","isoMis");print}'
+
+   
 
 
 ## Using if else statements
@@ -817,12 +822,11 @@ def feature_count_plot(infiles, outfile):
 def full():
     pass
 
-@originate("multiqc_data.dir")
+@originate("multiqc_data")
 def run_multiqc(outfile):
     ''' Run multiqc and overwrite any old reports '''
 
-    statement = '''export LC_ALL=en_GB.UTF-8 && export LANG=en_GB.UTF-8 && multiqc -f . &&
-                   mv multiqc_report.html multiqc_data.dir'''
+    statement = '''multiqc -f . '''
 
     P.run(statement)
 
