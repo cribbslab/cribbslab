@@ -80,14 +80,14 @@ SEQUENCEFILES_REGEX = r"(\S+).(?P<suffix>fastq.gz)"
 
 @follows(mkdir("fastqc_pre.dir"))
 @transform(INPUT_FORMATS,
-           suffix(".fastq.gz"),
-           r"fastqc_pre.dir/\1.fastq")
+           regex("(\S+).fastq.gz"),
+           r"fastqc_pre.dir/\1.html")
 def fastqc_pre(infile, outfile):
     """
     Runs fastQC on each input file
     """
 
-    statement = "fastqc -q -o fastqc_pre.dir/%(infile)s"
+    statement = "fastqc -q -o fastqc_pre.dir/ %(infile)s"
 
     P.run(statement)
 
@@ -522,6 +522,7 @@ def create_mature_trna(infiles,outfile):
 
     P.run(statement)
 
+
 @transform(create_mature_trna,
            regex("tRNA-mapping.dir/(\S+).fa"),
            r"tRNA-mapping.dir/\1_mature.fa")
@@ -531,6 +532,7 @@ def add_cca_tail(infile, outfile):
     statement = """python %(cribbslab)s/python/addCCA.py -I %(infile)s -S %(outfile)s"""
 
     P.run(statement)
+
 
 @transform(add_cca_tail,
            regex("tRNA-mapping.dir/(\S+)_mature.fa"),
@@ -543,6 +545,7 @@ def mature_trna_cluster(infile, outfile):
     statement = """python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"""
 
     P.run(statement)
+
 
 @transform(mature_trna_cluster,
            regex("tRNA-mapping.dir/(\S+).fa"),
@@ -653,6 +656,32 @@ def post_mapping_cluster(infiles, outfile):
                    samtools index %(outfile)s"""
 
     job_memory = "40G"
+    P.run(statement)
+
+
+@transform(map_with_bowtie,
+           regex("mapping.dir/(\S+).bam"),
+           add_inputs(trna_scan_mito),
+           r"mapping.dir/\1.transcriptprofile.gz")
+def profile_trna(infiles, outfile):
+    """This function takes a mapped bam file and then computes the profile across
+    the gene of the tRNA"""
+
+    bamfile, bedfile = infiles
+
+    statement = """cat %(bedfile)s |
+                   cgat bed2gff --as-gtf | gzip > tRNA-mapping.dir/tRNA-scan.gtf.gz &&
+                   cgat bam2geneprofile 
+                   --output-filename-pattern="%(outfile)s.%%s"
+                   --force-output
+                   --reporter=gene
+                   --method=geneprofile
+                   --bam-file=%(bamfile)s
+                   --gtf-file=tRNA-mapping.dir/tRNA-scan.gtf.gz
+                   | gzip
+                   > %(outfile)s
+                   """
+
     P.run(statement)
 
 
@@ -793,7 +822,7 @@ def feature_count_plot(infiles, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna)
 def full():
     pass
 
