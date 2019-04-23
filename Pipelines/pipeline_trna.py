@@ -80,14 +80,14 @@ SEQUENCEFILES_REGEX = r"(\S+).(?P<suffix>fastq.gz)"
 
 @follows(mkdir("fastqc_pre.dir"))
 @transform(INPUT_FORMATS,
-           suffix(".fastq.gz"),
-           r"fastqc_pre.dir/\1.fastq")
+           regex("(\S+).fastq.gz"),
+           r"fastqc_pre.dir/\1.html")
 def fastqc_pre(infile, outfile):
     """
     Runs fastQC on each input file
     """
 
-    statement = "fastqc -q -o fastqc_pre.dir/%(infile)s"
+    statement = "fastqc -q -o fastqc_pre.dir/ %(infile)s"
 
     P.run(statement)
 
@@ -659,10 +659,10 @@ def post_mapping_cluster(infiles, outfile):
     P.run(statement)
 
 
-@transform(post_mapping_cluster,
+@transform(map_with_bowtie,
            regex("mapping.dir/(\S+).bam"),
            add_inputs(trna_scan_mito),
-           "mapping.dir/\1.transcriptprofile.gz")
+           r"mapping.dir/\1.transcriptprofile.gz")
 def profile_trna(infiles, outfile):
     """This function takes a mapped bam file and then computes the profile across
     the gene of the tRNA"""
@@ -822,7 +822,7 @@ def feature_count_plot(infiles, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna)
 def full():
     pass
 
