@@ -522,6 +522,7 @@ def create_mature_trna(infiles,outfile):
 
     P.run(statement)
 
+
 @transform(create_mature_trna,
            regex("tRNA-mapping.dir/(\S+).fa"),
            r"tRNA-mapping.dir/\1_mature.fa")
@@ -531,6 +532,7 @@ def add_cca_tail(infile, outfile):
     statement = """python %(cribbslab)s/python/addCCA.py -I %(infile)s -S %(outfile)s"""
 
     P.run(statement)
+
 
 @transform(add_cca_tail,
            regex("tRNA-mapping.dir/(\S+)_mature.fa"),
@@ -543,6 +545,7 @@ def mature_trna_cluster(infile, outfile):
     statement = """python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"""
 
     P.run(statement)
+
 
 @transform(mature_trna_cluster,
            regex("tRNA-mapping.dir/(\S+).fa"),
@@ -653,6 +656,32 @@ def post_mapping_cluster(infiles, outfile):
                    samtools index %(outfile)s"""
 
     job_memory = "40G"
+    P.run(statement)
+
+
+@transform(post_mapping_cluster,
+           regex("mapping.dir/(\S+).bam"),
+           add_inputs(trna_scan_mito),
+           "mapping.dir/\1.transcriptprofile.gz")
+def profile_trna(infiles, outfile):
+    """This function takes a mapped bam file and then computes the profile across
+    the gene of the tRNA"""
+
+    bamfile, bedfile = infiles
+
+    statement = """cat %(bedfile)s |
+                   cgat bed2gff --as-gtf | gzip > tRNA-mapping.dir/tRNA-scan.gtf.gz &&
+                   cgat bam2geneprofile 
+                   --output-filename-pattern="%(outfile)s.%%s"
+                   --force-output
+                   --reporter=gene
+                   --method=geneprofile
+                   --bam-file=%(bamfile)s
+                   --gtf-file=tRNA-mapping.dir/tRNA-scan.gtf.gz
+                   | gzip
+                   > %(outfile)s
+                   """
+
     P.run(statement)
 
 
