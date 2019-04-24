@@ -81,7 +81,7 @@ SEQUENCEFILES_REGEX = r"(\S+).(?P<suffix>fastq.gz)"
 @follows(mkdir("fastqc_pre.dir"))
 @transform(INPUT_FORMATS,
            regex("(\S+).fastq.gz"),
-           r"fastqc_pre.dir/\1.html")
+           r"fastqc_pre.dir/\1_fastqc.html")
 def fastqc_pre(infile, outfile):
     """
     Runs fastQC on each input file
