@@ -845,7 +845,7 @@ def feature_count_plot(infiles, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna, trna_calculate_end)
 def full():
     pass
 
