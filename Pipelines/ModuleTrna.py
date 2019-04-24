@@ -6,12 +6,14 @@ ModuleTrna.py - Tasks for running trna pipleine
 import os
 import re
 import pysam
+import pandas as pd
+import seaborn as sns
 import cgatcore.experiment as E
 import cgatcore.iotools as IOTools
 import cgatcore.pipeline as P
 import cgatcore.database as Database
-import pandas as pd
-
+import cgat.FastaIterator as FastaIterator
+import cgat.GTF as GTF
 
 
 def merge_feature_data(infiles):

@@ -544,6 +544,7 @@ def create_mature_trna(infiles,outfile):
 
     P.run(statement)
 
+
 @transform(create_mature_trna,
            regex("tRNA-mapping.dir/(\S+).fa"),
            r"tRNA-mapping.dir/\1_mature.fa")
@@ -553,6 +554,7 @@ def add_cca_tail(infile, outfile):
     statement = """python %(cribbslab)s/python/addCCA.py -I %(infile)s -S %(outfile)s"""
 
     P.run(statement)
+
 
 @transform(add_cca_tail,
            regex("tRNA-mapping.dir/(\S+)_mature.fa"),
@@ -565,6 +567,7 @@ def mature_trna_cluster(infile, outfile):
     statement = """python %(cribbslab)s/python/trna_cluster.py -I %(infile)s -S %(outfile)s --info-file-out=%(cluster_info)s"""
 
     P.run(statement)
+
 
 @transform(mature_trna_cluster,
            regex("tRNA-mapping.dir/(\S+).fa"),
@@ -678,6 +681,32 @@ def post_mapping_cluster(infiles, outfile):
     P.run(statement)
 
 
+@transform(map_with_bowtie,
+           regex("mapping.dir/(\S+).bam"),
+           add_inputs(trna_scan_mito),
+           r"mapping.dir/\1.transcriptprofile.gz")
+def profile_trna(infiles, outfile):
+    """This function takes a mapped bam file and then computes the profile across
+    the gene of the tRNA"""
+
+    bamfile, bedfile = infiles
+
+    statement = """cat %(bedfile)s |
+                   cgat bed2gff --as-gtf | gzip > tRNA-mapping.dir/tRNA-scan.gtf.gz &&
+                   cgat bam2geneprofile 
+                   --output-filename-pattern="%(outfile)s.%%s"
+                   --force-output
+                   --reporter=gene
+                   --method=geneprofile
+                   --bam-file=%(bamfile)s
+                   --gtf-file=tRNA-mapping.dir/tRNA-scan.gtf.gz
+                   | gzip
+                   > %(outfile)s
+                   """
+
+    P.run(statement)
+
+
 @transform(mature_trna_cluster,
            regex("tRNA-mapping.dir/(\S+).fa"),
            r"\1_contig.tsv")
@@ -765,6 +794,29 @@ def merge_idx_stats(infiles, outfile):
 
     final_df.to_csv(outfile, sep="\t", compression="gzip")
 
+#################################################
+# Identify tRNA read end sites
+#################################################
+
+@follows(mkdir("tRNA-end-site.dir"))
+@transform(post_mapping_cluster,
+           regex("post_mapping_bams.dir/(\S+)_trna.bam"),
+           add_inputs(mature_trna_cluster),
+           r"tRNA-end-site.dir/\1.dir/")
+def trna_calculate_end(infiles, outdir):
+    """
+    Calculates the end position for each read for each tRNA cluster then
+    plots a heatmap
+    """
+    os.mkdir(outdir)
+
+    bamfile, fastafile = infiles
+
+    statement = """python %(cribbslab)s/python/trna_end_site.py -I %(bamfile)s -d %(outdir)s -f %(fastafile)s"""
+
+    P.run(statement)
+
+
 ####################################
 # Collect information regarding the per base % and create a
 # table of sample info for plotting
@@ -815,7 +867,7 @@ def feature_count_plot(infiles, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna, trna_calculate_end)
 def full():
     pass
 
