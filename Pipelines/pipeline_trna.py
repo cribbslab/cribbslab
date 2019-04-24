@@ -776,19 +776,23 @@ def merge_idx_stats(infiles, outfile):
 # Identify tRNA read end sites
 #################################################
 
-@follows(mkdir("tRNA-end-site"))
+@follows(mkdir("tRNA-end-site.dir"))
 @transform(post_mapping_cluster,
            regex("post_mapping_bams.dir/(\S+)_trna.bam"),
            add_inputs(mature_trna_cluster),
-           r"tRNA-end-site/\1.dir/")
+           r"tRNA-end-site.dir/\1.dir/")
 def trna_calculate_end(infiles, outdir):
     """
     Calculates the end position for each read for each tRNA cluster then
     plots a heatmap
     """
+    os.mkdir(outdir)
+
     bamfile, fastafile = infiles
 
-    ModuleTrna.trna_end_site(bamfile, fastafile, outdir)
+    statement = """python %(cribbslab)s/python/trna_end_site.py -I %(bamfile)s -d %(outdir)s -f %(fastafile)s"""
+
+    P.run(statement)
 
 
 ####################################
