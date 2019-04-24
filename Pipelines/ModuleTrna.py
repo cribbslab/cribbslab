@@ -206,7 +206,7 @@ def trna_end_site(bamfile, fastafile, outdir):
     """
 
     dict_trna = {}
-    for record in FastaIterator.iterate(iotools.open_file("tRNA-mapping.dir/hg38_cluster.fa")):
+    for record in FastaIterator.iterate(IOTools.open_file("tRNA-mapping.dir/hg38_cluster.fa")):
         title = record.title.strip("-")
         length = len(record.sequence)
         dict_trna[title] = length
@@ -237,7 +237,7 @@ def trna_end_site(bamfile, fastafile, outdir):
                 temp_df = pd.concat([temp_df, percent], axis=1)
                 percent = temp_df.fillna(0)
 
-                refname = "/ifs/projects/proj051/Analysis_will_paper/tRNA/temp/" + refname
+                refname = outdir + refname
                 percent.to_csv(refname)
             
                 g = sns.factorplot(x=percent.index, y="Percent", data=percent,
