@@ -169,7 +169,7 @@ def map_with_bowtie(infiles, outfile):
     fastq, genome = infiles
     tmp_fastq = P.get_temp_filename(".")
     temp_file = P.get_temp_filename(".")
-    genome = genome.replace(".fa", "")
+    #genome = genome.replace(".fa", "")
 
     statement = """gzip -dc %(fastq)s > %(tmp_fastq)s && bowtie -k 10 -v 2 --best --strata --sam  %(genome)s  %(tmp_fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s &&
