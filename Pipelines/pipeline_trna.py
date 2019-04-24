@@ -169,7 +169,7 @@ def map_with_bowtie(infiles, outfile):
     fastq, genome = infiles
     tmp_fastq = P.get_temp_filename(".")
     temp_file = P.get_temp_filename(".")
-    genome = genome.replace(".fa", "")
+    #genome = genome.replace(".fa", "")
 
     statement = """gzip -dc %(fastq)s > %(tmp_fastq)s && bowtie -k 10 -v 2 --best --strata --sam  %(genome)s  %(tmp_fastq)s 2> %(outfile)s_bowtie.log | samtools view -bS |
                    samtools sort -T %(temp_file)s -o %(outfile)s &&
@@ -381,20 +381,40 @@ def genome_coverage(infiles, outfile):
 
     statement = """bedtools genomecov -ibam %(infile)s -g %(genome)s > %(outfile)s"""
 
-# Maybe should use hg38_mature.fa instead, would have to add input from add_cca_tail
+# Maybe should use hg38_mature.fa instead, would  add input from add_cca_tail
 # should use -d to look at every position
     P.run(statement)
 
 ################################################
 # Perform mapping of tRNA's as set out in Hoffmann et al 2018
 ################################################
-## Using if else statements
+
+@active_if(PARAMS['trna_scan_load'])
+@follows(mkdir("tRNAscan_load.dir"))
+@originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
+def trna_scan_load(outfile):
+    """ If already downloaded trna nuclear genome from http://gtrnadb.ucsc.edu/index.html """
+
+    trna_folder = os.path.join(PARAMS['trna_scan_path'], PARAMS['trna_scan_folder'] + ".tar.gz")
+    genome = PARAMS['trna_scan_folder']
+    trna_file = "tRNAscan_load.dir/" + genome  + "-detailed.out"
+    tmp_genome = P.get_temp_filename(".")
+
+    statement = """ tar -xzf %(trna_folder)s -C tRNAscan_load.dir && 
+    cut -f1-9,16 %(trna_file)s | sed 1,3d > %(tmp_genome)s && 
+    awk -F"\\t" '{ $10 = ($10 == "pseudo" ? $10 : "") } 1' OFS=, %(tmp_genome)s | sed 's/,/\\t/g' > %(outfile)s   
+    """
+
+    P.run(statement)
+    os.unlink(tmp_genome)
+  
+
+@active_if(not PARAMS['trna_scan_load'])
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_nuc(outfile):
+    """Scans genome using tRNAscanSE to identify nuclear tRNA"""
     if( PARAMS['index_run']):
-        """Scans genome using tRNAscanSE to identify nuclear tRNA"""
-
 
         genome = os.path.join(PARAMS['genome_dir'], PARAMS['genome'] + ".fa")
 
@@ -408,9 +428,11 @@ def trna_scan_nuc(outfile):
         indexed_genome = os.path.join(PARAMS['index_genome_dir'], PARAMS['index_genome'] + ".nuc.csv")
         os.symlink(indexed_genome, 'tRNA-mapping.dir/tRNAscan.nuc.csv')
 # softlink to location of nuc.csv file
+# Need option if downloaded from database
 
-
-@transform(trna_scan_nuc,
+@follows(trna_scan_load)
+@follows(trna_scan_nuc)
+@transform(["tRNA-mapping.dir/tRNAscan.nuc.csv"],
            regex("tRNA-mapping.dir/(\S+).nuc.csv"),
            r"tRNA-mapping.dir/\1.bed12")
 def trna_scan_mito(infile, outfile):
@@ -633,10 +655,10 @@ def keep_mature_trna(infiles, outfile):
 
     P.run(statement)
 
-
 #################################################
 # Post processing of mapping data
 #################################################
+
 @follows(mkdir("post_mapping_bams.dir"))
 @transform(keep_mature_trna,
            regex("tRNA-mapping.dir/(\S+)_filtered.fastq.gz"),
@@ -849,12 +871,11 @@ def feature_count_plot(infiles, outfile):
 def full():
     pass
 
-@originate("multiqc_data.dir")
+@originate("multiqc_data")
 def run_multiqc(outfile):
     ''' Run multiqc and overwrite any old reports '''
 
-    statement = '''export LC_ALL=en_GB.UTF-8 && export LANG=en_GB.UTF-8 && multiqc -f . &&
-                   mv multiqc_report.html multiqc_data.dir'''
+    statement = '''multiqc -f . '''
 
     P.run(statement)
 
