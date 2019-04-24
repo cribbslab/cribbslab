@@ -81,7 +81,7 @@ SEQUENCEFILES_REGEX = r"(\S+).(?P<suffix>fastq.gz)"
 @follows(mkdir("fastqc_pre.dir"))
 @transform(INPUT_FORMATS,
            regex("(\S+).fastq.gz"),
-           r"fastqc_pre.dir/\1.html")
+           r"fastqc_pre.dir/\1_fastqc.html")
 def fastqc_pre(infile, outfile):
     """
     Runs fastQC on each input file
@@ -772,6 +772,29 @@ def merge_idx_stats(infiles, outfile):
 
     final_df.to_csv(outfile, sep="\t", compression="gzip")
 
+#################################################
+# Identify tRNA read end sites
+#################################################
+
+@follows(mkdir("tRNA-end-site.dir"))
+@transform(post_mapping_cluster,
+           regex("post_mapping_bams.dir/(\S+)_trna.bam"),
+           add_inputs(mature_trna_cluster),
+           r"tRNA-end-site.dir/\1.dir/")
+def trna_calculate_end(infiles, outdir):
+    """
+    Calculates the end position for each read for each tRNA cluster then
+    plots a heatmap
+    """
+    os.mkdir(outdir)
+
+    bamfile, fastafile = infiles
+
+    statement = """python %(cribbslab)s/python/trna_end_site.py -I %(bamfile)s -d %(outdir)s -f %(fastafile)s"""
+
+    P.run(statement)
+
+
 ####################################
 # Collect information regarding the per base % and create a
 # table of sample info for plotting
@@ -822,7 +845,7 @@ def feature_count_plot(infiles, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna, trna_calculate_end)
 def full():
     pass
 
