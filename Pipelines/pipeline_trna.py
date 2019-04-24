@@ -80,8 +80,8 @@ SEQUENCEFILES_REGEX = r"(\S+).(?P<suffix>fastq.gz)"
 
 @follows(mkdir("fastqc_pre.dir"))
 @transform(INPUT_FORMATS,
-           suffix(".fastq.gz"),
-           r"fastqc_pre.dir/\1.fastq")
+           regex("(\S+).fastq.gz"),
+           r"fastqc_pre.dir/\1_fastqc.html")
 def fastqc_pre(infile, outfile):
     """
     Runs fastQC on each input file
@@ -406,14 +406,10 @@ def trna_scan_load(outfile):
     """
 
     P.run(statement)
+    os.unlink(tmp_genome)
+  
 
-#awk '{$10=$11=$12=$13=$14=$15=""; print $0}' %(tmp_genome)s > %(outfile)s
-#awk '{gsub("high confidence set","hcs");gsub("secondary filtered","sf");gsub("isotype mismatch","isoMis");print}'
-
-   
-
-
-## Using if else statements
+@active_if(not PARAMS['trna_scan_load'])
 @follows(mkdir("tRNA-mapping.dir"))
 @originate("tRNA-mapping.dir/tRNAscan.nuc.csv")
 def trna_scan_nuc(outfile):
@@ -434,8 +430,9 @@ def trna_scan_nuc(outfile):
 # softlink to location of nuc.csv file
 # Need option if downloaded from database
 
-
-@transform(trna_scan_nuc,
+@follows(trna_scan_load)
+@follows(trna_scan_nuc)
+@transform(["tRNA-mapping.dir/tRNAscan.nuc.csv"],
            regex("tRNA-mapping.dir/(\S+).nuc.csv"),
            r"tRNA-mapping.dir/\1.bed12")
 def trna_scan_mito(infile, outfile):
