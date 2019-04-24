@@ -772,6 +772,25 @@ def merge_idx_stats(infiles, outfile):
 
     final_df.to_csv(outfile, sep="\t", compression="gzip")
 
+#################################################
+# Identify tRNA read end sites
+#################################################
+
+@follows(mkdir("tRNA-end-site"))
+@transform(post_mapping_cluster,
+           regex("post_mapping_bams.dir/(\S+)_trna.bam"),
+           add_inputs(mature_trna_cluster),
+           r"tRNA-end-site/\1.dir/")
+def trna_calculate_end(infiles, outdir):
+    """
+    Calculates the end position for each read for each tRNA cluster then
+    plots a heatmap
+    """
+    bamfile, fastafile = infiles
+
+    ModuleTrna.trna_end_site(bamfile, fastafile, outdir)
+
+
 ####################################
 # Collect information regarding the per base % and create a
 # table of sample info for plotting

@@ -6,12 +6,14 @@ ModuleTrna.py - Tasks for running trna pipleine
 import os
 import re
 import pysam
+import pandas as pd
+import seaborn as sns
 import cgatcore.experiment as E
 import cgatcore.iotools as IOTools
 import cgatcore.pipeline as P
 import cgatcore.database as Database
-import pandas as pd
-
+import cgat.FastaIterator as FastaIterator
+import cgat.GTF as GTF
 
 
 def merge_feature_data(infiles):
@@ -194,3 +196,60 @@ def coverage(idx, coverage, outfile):
 
     # split post_mapping column into two
     df['GT'], df['read_count'] = df['post_mapping'].str.split(':', 1).str
+
+
+def trna_end_site(bamfile, fastafile, outdir):
+    """
+    This funtion takes in a fasta of the clustered tRNA and calculates the length.
+    It also takes as an input a bam file and then identified the end of each read,
+    making a histogram of all of the end sites for each tRNA-species.
+    """
+
+    dict_trna = {}
+    for record in FastaIterator.iterate(iotools.open_file("tRNA-mapping.dir/hg38_cluster.fa")):
+        title = record.title.strip("-")
+        length = len(record.sequence)
+        dict_trna[title] = length
+
+    # For each read in bamfile find end position and then plot this using length of tRNA cluster
+    samfile = pysam.AlignmentFile("post_mapping_bams.dir/NORMAL_10KP_2367_miRNA1_trna.bam", "rb")
+    refname = ""
+    values = []
+    n = 0
+    for line in samfile:
+        if line.reference_name == refname:
+            end = int(line.reference_end) - int(line.reference_start)
+            values.append(end)
+        elif line.reference_name != refname:
+            n += 1
+            if n > 1:
+
+                values = pd.Series(values)
+                percent = values.value_counts() / values.count() * 100
+                percent = percent.sort_index()
+                percent = pd.DataFrame(percent)
+                percent.rename(columns={0: 'Percent'}, inplace=True)
+            
+                # length of each tRNA from fasta
+                length = dict_trna[refname.strip("-")] + 1
+            
+                temp_df = pd.DataFrame(0, index=range(1,length), columns=['A'])
+                temp_df = pd.concat([temp_df, percent], axis=1)
+                percent = temp_df.fillna(0)
+
+                refname = "/ifs/projects/proj051/Analysis_will_paper/tRNA/temp/" + refname
+                percent.to_csv(refname)
+            
+                g = sns.factorplot(x=percent.index, y="Percent", data=percent,
+                                   size=8, kind="bar", palette="Blues")
+                g.set_xlabels('position from 5\' end')
+                g.set_xticklabels(rotation=90)
+                g.savefig(refname)
+            
+                values = []
+                refname = line.reference_name
+
+
+            else:
+            
+                refname = line.reference_name
