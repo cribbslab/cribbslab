@@ -108,7 +108,7 @@ def main(argv=None):
 
                 refname = options.outdir + refname.strip("-")
                 outfile = refname + ".csv"
-                outfig = refname + ".png"
+                outfig = refname + ".eps"
 
                 percent.to_csv(outfile)
             
@@ -116,7 +116,7 @@ def main(argv=None):
                                    size=8, kind="bar", palette="Blues")
                 g.set_xlabels('position from 5\' end')
                 g.set_xticklabels(rotation=90)
-                g.savefig(outfig)
+                g.savefig(outfig, format='eps')
             
                 values = []
                 refname = line.reference_name
