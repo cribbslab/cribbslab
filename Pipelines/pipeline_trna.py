@@ -864,6 +864,17 @@ def feature_count_plot(infiles, outfile):
 
 '''
 
+@transform(create_coverage,
+           regex("post_mapping_bams.dir/(\S+)_pileup.tsv"),
+           r"\1_coverage.png")
+def coverage_plot(infile, outfile):
+    ''' '''
+
+    statement = """ Rscript %(cribbslab)s/R/coverage_plot_test_script.r --input=%(infile)s --output=%(outfile)s """
+
+    P.run(statement)
+
+
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
@@ -879,7 +890,7 @@ def run_multiqc(outfile):
 
     P.run(statement)
 
-@follows(run_multiqc)
+@follows(merge_features, build_bam_stats, pre_mapping_artificial, map_with_bowtie, fastqc_pre, index_trna_cluster, full_genome_idxstats, idx_stats_post, run_multiqc)
 @originate("QC_report.html")
 def run_rmarkdown(outfile):
 
