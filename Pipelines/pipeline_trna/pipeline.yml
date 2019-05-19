@@ -74,4 +74,14 @@ index:
     genome_dir : /ifs/research-groups/botnar/proj025/analyses/
     genome : tRNAscan_h38
 
+trna_scan: 
+    # Option to load pre-downloaded genomic tRNA scan annotations from http://gtrnadb.ucsc.edu/index.html
+    load: 0
+
+    path : /ifs/research-groups/botnar/proj025/analyses/test_april/
+  
+    folder : hg38-tRNAs
+    # no tar.gz needed
+
+######
 

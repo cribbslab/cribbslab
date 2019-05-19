@@ -878,7 +878,7 @@ def coverage_plot(infile, outfile):
 @follows(strand_specificity, count_reads, count_features, build_bam_stats,
          full_genome_idxstats, build_samtools_stats, genome_coverage,
          bowtie_index_artificial, index_trna_cluster, remove_reads,
-         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna, trna_calculate_end)
+         keep_mature_trna, merge_idx_stats, create_coverage, filter_vcf, merge_features, profile_trna, trna_calculate_end, coverage_plot)
 def full():
     pass
 
