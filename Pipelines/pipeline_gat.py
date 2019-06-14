@@ -47,6 +47,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 from pylab import savefig
 from ruffus import *
+import ModuleGat
 import cgatcore.pipeline as P
 import cgatcore.experiment as E
 
@@ -127,7 +128,78 @@ def plot_heat(infile, outfile):
     figure = fig.get_figure()    
     figure.savefig(outfile, dpi=400)
     
-@follows(merge_gat)
+
+
+#############################################################
+# Annotation of regulated genes
+############################################################
+
+@originate("transcript2gene.tsv")
+def transcript2gene(outfile):
+    """generate a transcript2 gene map for processing tts and tss """
+
+    infile = PARAMS['geneexpression_coding_gene_gtf']
+    statement = "zcat %(infile)s | cgat gtf2tsv --output-map=transcript2gene > transcript2gene.tsv"
+
+    P.run(statement)
+
+@follows(mkdir("genexpression.dir"))
+@active_if(PARAMS['geneexpression_present'])
+@transform(PARAMS['geneexpression_gene_lists'],
+           regex(".*/(\S+).csv"),
+           r"genexpression.dir/coding_\1.bed.gz")
+def coding_gene_parse(infile, outfile):
+    """Filter a gtf using gene lists and then outut them as gtf"""
+
+    bedfile = PARAMS['geneexpression_coding_gene']
+
+    statement = """zcat %(bedfile)s | grep -f %(infile)s | gzip > %(outfile)s"""
+
+    P.run(statement)
+
+@transform(PARAMS['geneexpression_gene_lists'],
+           regex(".*/(\S+).csv"),
+           add_inputs(transcript2gene),
+           r"genexpression.dir/transcripts_\1.txt")
+def gene2trans_output(infiles, outfile):
+    """Filter a gtf using gene lists and then outut them as gtf"""
+
+    infile, transmap = infiles
+
+    ModuleGat.gene2trans(infile, outfile, transmap)
+
+    # Not needed now as I can use coding gene tts and tss instead
+
+
+@active_if(PARAMS['geneexpression_present'])
+@transform(PARAMS['geneexpression_gene_lists'],
+           regex(".*/(\S+).csv"),
+           r"genexpression.dir/tts_\1.bed.gz")
+def tts_gene_parse(infile, outfile):
+    """Filter a gtf using gene lists and then outut them as gtf"""
+
+    bedfile = PARAMS['geneexpression_tts']
+
+    statement = """zcat %(bedfile)s | grep -f %(infile)s | gzip > %(outfile)s"""
+
+    P.run(statement)
+
+
+@active_if(PARAMS['geneexpression_present'])
+@transform(PARAMS['geneexpression_gene_lists'],
+           regex(".*/(\S+).csv"),
+           r"genexpression.dir/tss_\1.bed.gz")
+def tss_gene_parse(infile, outfile):
+    """Filter a gtf using gene lists and then outut them as gtf"""
+
+    bedfile = PARAMS['geneexpression_tss']
+
+    statement = """zcat %(bedfile)s | grep -f %(infile)s | gzip > %(outfile)s"""
+
+    P.run(statement)
+
+
+@follows(merge_gat, coding_gene_parse)
 def full():
     pass
 

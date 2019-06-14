@@ -31,3 +31,14 @@ gat:
     contig: "/ifs/mirror/annotations/hg19_ensembl75_hierarchical/assembly.dir/contigs.bed.gz"
 
     annotation_bed: "/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/merged_annotation.bed.gz"
+
+geneexpression:
+    present: 1
+
+    coding_gene: /ifs/mirror/annotations/hg19_ensembl75_hierarchical/geneset.dir/coding_gene_region.bed.gz
+
+    coding_gene_gtf: /ifs/mirror/annotations/hg19_ensembl75_hierarchical/ensembl.dir/geneset_coding_exons.gtf.gz
+    tss: /ifs/mirror/annotations/hg19_ensembl75_hierarchical/geneset.dir/coding_gene_tss.bed.gz
+    tts: /ifs/mirror/annotations/hg19_ensembl75_hierarchical/geneset.dir/coding_gene_tts.bed.gz
+    gene_lists: [/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/downregulated.csv,/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/upregulated.csv]
+
