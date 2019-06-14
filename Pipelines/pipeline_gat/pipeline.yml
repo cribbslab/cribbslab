@@ -26,3 +26,8 @@ release: 0.1
 
 chromhmm:
     segment_bed: "/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/JMJD3_J4_10_segments.bed"
+
+gat:
+    contig: "/ifs/mirror/annotations/hg19_ensembl75_hierarchical/assembly.dir/contigs.bed.gz"
+
+    annotation_bed: "/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/merged_annotation.bed.gz"
