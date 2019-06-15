@@ -180,7 +180,10 @@ def tts_gene_parse(infile, outfile):
 
     bedfile = PARAMS['geneexpression_tts']
 
-    statement = """zcat %(bedfile)s | grep -f %(infile)s | gzip > %(outfile)s"""
+    tmpfile = P.get_temp_filename()
+
+    statement = """zcat %(bedfile)s | grep -f %(infile)s > %(tmpfile)s &&
+                   cat %(tmpfile)s | awk '{$4 = "TTS"; print}' | gzip > %(outfile)s"""
 
     P.run(statement)
 
@@ -194,12 +197,35 @@ def tss_gene_parse(infile, outfile):
 
     bedfile = PARAMS['geneexpression_tss']
 
-    statement = """zcat %(bedfile)s | grep -f %(infile)s | gzip > %(outfile)s"""
+    tmpfile = P.get_temp_filename()
+
+    statement = """zcat %(bedfile)s | grep -f %(infile)s > %(tmpfile)s &&
+                   cat %(tmpfile)s | awk '{$4 = "TSS"; print}' | gzip > %(outfile)s"""
 
     P.run(statement)
 
+@transform(coding_gene_parse,
+           regex("genexpression.dir/(\S+).bed.gz"),
+           r"genexpression.dir/extended_\1.bed.gz")
+def extend_coding(infile, outfile):
+    """extend the bed file =/-2000bp"""
 
-@follows(merge_gat, coding_gene_parse)
+    ModuleGat.extend_bed(infile, outfile)
+
+@collate((extend_coding, tss_gene_parse, tts_gene_parse),
+         regex("genexpression.dir/(\S+)_([a-z]+regulated).bed.gz"),
+         r"genexpression.dir/\2_merged.bed.gz")
+def merge_bedfiles(infiles, outfile):
+    """Merge the bed files togather"""
+
+    files = " ".join(infiles)
+    print("==================")
+    print(files)
+    #statement = "zcat < %(cds)s < %(tts)s < %(tss)s | gzip > %(outfile)s"
+
+    #P.run(statement)
+
+@follows(merge_gat, coding_gene_parse, tss_gene_parse, tts_gene_parse) 
 def full():
     pass
 
