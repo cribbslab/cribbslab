@@ -183,7 +183,7 @@ def tts_gene_parse(infile, outfile):
     tmpfile = P.get_temp_filename()
 
     statement = """zcat %(bedfile)s | grep -f %(infile)s > %(tmpfile)s &&
-                   cat %(tmpfile)s | awk '{$4 = "TTS"; print}' | gzip > %(outfile)s"""
+                   cat %(tmpfile)s | awk '{$4 = "TTS"; print}' OFS='\\t' | gzip > %(outfile)s"""
 
     P.run(statement)
 
@@ -200,7 +200,7 @@ def tss_gene_parse(infile, outfile):
     tmpfile = P.get_temp_filename()
 
     statement = """zcat %(bedfile)s | grep -f %(infile)s > %(tmpfile)s &&
-                   cat %(tmpfile)s | awk '{$4 = "TSS"; print}' | gzip > %(outfile)s"""
+                   cat %(tmpfile)s | awk '{$4 = "TSS"; print}' OFS='\\t' | gzip > %(outfile)s"""
 
     P.run(statement)
 
@@ -219,11 +219,83 @@ def merge_bedfiles(infiles, outfile):
     """Merge the bed files togather"""
 
     files = " ".join(infiles)
-    print("==================")
-    print(files)
-    #statement = "zcat < %(cds)s < %(tts)s < %(tss)s | gzip > %(outfile)s"
+    statement = "cat %(files)s  > %(outfile)s"
 
-    #P.run(statement)
+    P.run(statement)
+
+@follows(mkdir("bed_segments_up_down.dir"))
+@subdivide(segment_bed,
+           regex("bed_segments.dir/(\S+).bed"),
+           add_inputs(merge_bedfiles),
+           [r"bed_segments_up_down.dir/downregulated_\1.out", 
+            r"bed_segments_up_down.dir/upregulated_\1.out"])
+def run_gat_merged(infiles, outfiles):
+    """run gat on merged bedfile """
+
+    segments, downreg, upreg = infiles
+    contigs = PARAMS['gat_contig']
+
+    downout, upout = outfiles
+    statement = """gat-run.py 
+                   --segments=%(segments)s
+                   --annotations=%(downreg)s 
+                   --workspace=%(contigs)s
+                   --log=downregulated_gta.log > %(downout)s """
+
+    P.run(statement)
+
+    statement = """gat-run.py 
+                   --segments=%(segments)s 
+                   --annotations=%(upreg)s 
+                   --workspace=%(contigs)s
+                   --log=gta.log > %(upout)s """
+
+    P.run(statement)
+
+@collate(run_gat_merged,
+         regex("bed_segments_up_down.dir/(\S+)_(\S+).out"),
+         r"bed_segments_up_down.dir/\1_merged_gat.csv")
+def merge_gat_regulated(infiles, outfile):
+    """This function collects the log2 fold change values from gat and then merges them into a single csv file"""
+
+    
+    data_frame = pd.DataFrame()
+
+    for infile in infiles:
+        df = pd.read_table(infile)
+        basename = os.path.basename(infile)
+        name = basename.replace("_segments.out", "")
+        annotation = df['annotation']
+        data = df['l2fold']
+        data = data.rename(name)
+        data_frame = data_frame.append(data)
+    data_frame = data_frame.append(annotation)
+    data_frame = data_frame.transpose()
+    data_frame = data_frame.set_index(annotation)
+    del data_frame['annotation']
+    data_frame.to_csv(outfile)
+
+@transform(merge_gat_regulated,
+           suffix(".csv"),
+           "\1.final")
+def plot_heat_regulated(infile, outfile):
+    """Generates a heatmap of the merged data from gat"""
+
+    comb = pd.read_csv(infile)
+    comb = pd.read_csv("bed_segments.dir/merged_gat.csv")
+    comb.set_index("annotation", inplace=True)
+    df = comb.transpose()
+
+    fig = sns.heatmap(df, annot=False, fmt="g", cmap='Reds', square=True)
+    figure = fig.get_figure()    
+    figure.savefig(outfile, dpi=400)
+
+
+##########################################
+# For each segment find top 10 enrichments
+##########################################
+
+
 
 @follows(merge_gat, coding_gene_parse, tss_gene_parse, tts_gene_parse) 
 def full():
