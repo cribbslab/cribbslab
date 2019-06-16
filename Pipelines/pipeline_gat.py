@@ -120,7 +120,6 @@ def plot_heat(infile, outfile):
     """Generates a heatmap of the merged data from gat"""
 
     comb = pd.read_csv(infile)
-    comb = pd.read_csv("bed_segments.dir/merged_gat.csv")
     comb.set_index("annotation", inplace=True)
     df = comb.transpose()
 
@@ -253,7 +252,7 @@ def run_gat_merged(infiles, outfiles):
     P.run(statement)
 
 @collate(run_gat_merged,
-         regex("bed_segments_up_down.dir/(\S+)_(\S+).out"),
+         regex("bed_segments_up_down.dir/(\S+)_\S+_\S+.out"),
          r"bed_segments_up_down.dir/\1_merged_gat.csv")
 def merge_gat_regulated(infiles, outfile):
     """This function collects the log2 fold change values from gat and then merges them into a single csv file"""
@@ -277,12 +276,11 @@ def merge_gat_regulated(infiles, outfile):
 
 @transform(merge_gat_regulated,
            suffix(".csv"),
-           "\1.final")
+           r"\1.eps")
 def plot_heat_regulated(infile, outfile):
     """Generates a heatmap of the merged data from gat"""
 
     comb = pd.read_csv(infile)
-    comb = pd.read_csv("bed_segments.dir/merged_gat.csv")
     comb.set_index("annotation", inplace=True)
     df = comb.transpose()
 
@@ -295,7 +293,17 @@ def plot_heat_regulated(infile, outfile):
 # For each segment find top 10 enrichments
 ##########################################
 
+# Annotate peaks using homer
+@transform(segment_bed,
+           suffix(".bed"),
+           ".txt")
+def run_homer(infile, outfile):
+    "Run homer to define annotations"
 
+    genome = PARAMS['homer_genome']
+    statement = """annotatePeaks.pl %(infile)s %(genome)s > %(outfile)s"""
+
+    P.run(statement)
 
 @follows(merge_gat, coding_gene_parse, tss_gene_parse, tts_gene_parse) 
 def full():

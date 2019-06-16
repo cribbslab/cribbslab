@@ -42,3 +42,5 @@ geneexpression:
     tts: /ifs/mirror/annotations/hg19_ensembl75_hierarchical/geneset.dir/coding_gene_tts.bed.gz
     gene_lists: [/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/downregulated.csv,/ifs/research-groups/botnar/proj003/analyses/Adam_analysis/Chromhmm/output.dir/upregulated.csv]
 
+homer:
+    genome: hg19
