@@ -81,7 +81,7 @@ def getIdxstats(infiles, outfile):
     be plotted later'''
     # I have had to add a sleep to make sure the output is written before
     # the next test.
-    statement = '''samtools idxstats %(infiles)s > %(outfile)s && sleep 20'''
+    statement = '''samtools index %(infiles)s && samtools idxstats %(infiles)s > %(outfile)s && sleep 20'''
     P.run(statement)
 
 
