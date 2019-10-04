@@ -124,7 +124,7 @@ def buildBedGraph(infile, outfile):
 
     tmpfile = P.get_temp_filename()
     tmpfile2 = P.get_temp_filename()
-    job_memory = "3G"
+    job_memory = "30G"
     statement = '''bedtools genomecov
     -ibam %(inf)s
     -g %(contig_sizes)s
@@ -168,7 +168,12 @@ def annotatePeaksBed(infiles, outfile):
     '''
     bedGraph = infiles[0]
 
-    bedfile = infiles[1][0][0]
+    try:
+        bedfile = infiles[1][0][0]
+    except IndexError as error:
+        print(error)
+        print("No bed file detected")
+
     statement = '''
                 annotatePeaks.pl %(bedfile)s hg19 -bedGraph %(bedGraph)s %(homer_options)s  > %(outfile)s
                 '''
