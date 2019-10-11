@@ -51,7 +51,7 @@ def bam2fastq_paired(infile, outfiles):
 
     outf1, outf2 = outfiles
 
-    statement = '''cat %(infiles)s | cgat bam2fastq %(outf1)s %(outf2)s'''
+    statement = '''cat %(infile)s | cgat bam2fastq %(outf1)s %(outf2)s'''
 
     P.run(statement)
 
