@@ -43,6 +43,7 @@ SEQUENCESUFFIXES = ("*.bam"
 BAMTARGET = tuple([os.path.join(".", suffix_name)
                        for suffix_name in SEQUENCESUFFIXES])
 
+@active_if(PARAMS['paired_end'] == 1)
 @subdivide(BAMTARGET,
          regex("(\S+).bam"),
          [r"\1.fastq.1.gz", r"\1.fastq.2.gz"])
@@ -61,22 +62,24 @@ def bam2fastq_paired(infile, outfiles):
 
     P.run(statement)
 
+
+@active_if(PARAMS['paired_end'] == 0)
 @transform(BAMTARGET,
            regex("(\S+).bam"),
            r"\1.fastq.gz")
 def bam2fastq_single(infile, outfile):
     '''Convert a bam file to one fastq files.'''
 
-    out1 = infile.replace(".gz","")
+    out1 = outfile.replace(".gz","")
 
     statement = '''
-                   bedtools bamtofastq -i %(infile)s.tmp -fq %(out1)s &&
-                   gzip %(out1)s &&
-                   rm -rf %(infile)s.tmp'''
+                   bedtools bamtofastq -i %(infile)s -fq %(out1)s &&
+                   gzip %(out1)s'''
 
     P.run(statement)
 
-@follows(bam2fastq_paired)
+
+@follows(bam2fastq_paired, bam2fastq_single)
 def full():
     pass
 
