@@ -50,11 +50,31 @@ def bam2fastq_paired(infile, outfiles):
     '''Convert a bam file to two fastq files.'''
 
     outf1, outf2 = outfiles
+    out1 = outf1.replace(".gz", "")
+    out2 = outf2.replace(".gz", "")
 
-    statement = '''cat %(infile)s | cgat bam2fastq %(outf1)s %(outf2)s'''
+    statement = '''samtools sort %(infile)s -o %(infile)s.tmp &&
+                   bedtools bamtofastq -i %(infile)s.tmp -fq %(out1)s -fq2 %(out2)s &&
+                   gzip %(out1)s &&
+                   gzip %(out2)s &&
+                   rm -rf %(infile)s.tmp'''
 
     P.run(statement)
 
+@transform(BAMTARGET,
+           regex("(\S+).bam"),
+           r"\1.fastq.gz")
+def bam2fastq_single(infile, outfile):
+    '''Convert a bam file to one fastq files.'''
+
+    out1 = infile.replace(".gz","")
+
+    statement = '''
+                   bedtools bamtofastq -i %(infile)s.tmp -fq %(out1)s &&
+                   gzip %(out1)s &&
+                   rm -rf %(infile)s.tmp'''
+
+    P.run(statement)
 
 @follows(bam2fastq_paired)
 def full():
