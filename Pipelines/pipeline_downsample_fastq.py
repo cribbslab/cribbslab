@@ -89,9 +89,12 @@ SEQUENCESUFFIXES = ("*.fastq.1.gz",
 def downsample(infile, outfile):
     '''downsample fastq files using seqtk tool.'''
 
-    statement = '''seqtk sample -s100 %(infile)s %(downsample_read)s > %(outfile)s'''
+    tmp_file = P.get_temp_filename(".")
+    statement = '''zcat %(infile)s > %(tmp_file)s && seqtk sample -2 -s100 %(tmp_file)s %(downsample_read)s | gzip > %(outfile)s'''
 
+    job_memory= "30G"
     P.run(statement)
+    os.unlink(tmp_file)
 
 
 @follows(downsample)
