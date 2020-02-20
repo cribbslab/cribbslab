@@ -89,7 +89,7 @@ SEQUENCESUFFIXES = ("*.fastq.1.gz",
 def downsample(infile, outfile):
     '''downsample fastq files using seqtk tool.'''
 
-    statement = '''seqtk sample %(infile)s %(downsample_read)s > %(outfile)s'''
+    statement = '''seqtk sample -s100 %(infile)s %(downsample_read)s > %(outfile)s'''
 
     P.run(statement)
 
