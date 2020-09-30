@@ -24,6 +24,13 @@ version: 0.1
 # The full version, including alpha/beta/rc tags.
 release: 0.1
 
-merge: 
-    pattern_input: '(\S+)_L\d+'
-    pattern_output: '\1'
+# location of Illumina format fastq files
+inlocation: '/ifs/research-groups/botnar/proj034/backup/comp11/'
+
+# location for output fastq files
+outlocation: '/ifs/research-groups/botnar/proj034/analyses/comp11/data.dir/'
+
+# merge pattern - defaults are for illumina to cgat
+merge:
+    pattern_input: '(\S+)_R(\d+)\S+'
+
