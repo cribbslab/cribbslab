@@ -28,4 +28,6 @@ release: 0.1
 ontsoftware: /ifs/devel/adamc/ont-guppy-cpu/bin/guppy_basecaller
 
 # Location of the fast5 files
-fast5_dir: /ifs/research-groups/botnar/proj034/backup/dual-amidite-E1/E1/20201027_1007_MN34135_FAO15737_e5ca845e/fast5_skip/
+fast5_dir: /ifs/research-groups/botnar/proj034/backup/dual-amidite-E1/E1/20201027_1007_MN34135_FAO15737_e5ca845e/fast5_test/
+
+outfile: /ifs/research-groups/botnar/proj034/backup/dual-amidite-E1/E1/20201027_1007_MN34135_FAO15737_e5ca845e/fastq_output/
