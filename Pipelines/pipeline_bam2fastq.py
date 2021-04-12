@@ -54,7 +54,7 @@ def bam2fastq_paired(infile, outfiles):
     out1 = outf1.replace(".gz", "")
     out2 = outf2.replace(".gz", "")
 
-    statement = '''samtools sort %(infile)s -o %(infile)s.tmp &&
+    statement = '''samtools sort -n %(infile)s -o %(infile)s.tmp &&
                    bedtools bamtofastq -i %(infile)s.tmp -fq %(out1)s -fq2 %(out2)s &&
                    gzip %(out1)s &&
                    gzip %(out2)s &&
