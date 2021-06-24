@@ -56,10 +56,10 @@ def compute_mean(infile, outfile):
     """compute mean"""
 
     statement = (
-        "cat %(infile)s "
-        "| awk '$1 > %(min_value)f "
-        "{{a += $1}} END {{print a/NR}}' "
-        "> %(outfile)s".format(**locals()))
+        """cat %(infile)s 
+        | awk '$1 > %(min_value)f
+        {{a += $1}} END {{print a/NR}}'
+        > %(outfile)s""".format(**locals()))
 
     P.run(statement)
 
