@@ -4,4 +4,4 @@ queue: all.q
 kal_quant:
     options: --rf-stranded  #Strand specific reads, first read forward
     threads: 8
-    bootstraps: 0        #Number of time the alignment is re-run, used to model technical variance in the dataset
+    bootstraps: 40        #Number of time the alignment is re-run, used to model technical variance in the dataset
