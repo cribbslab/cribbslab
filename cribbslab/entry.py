@@ -27,7 +27,7 @@ import sys
 import re
 import glob
 import imp
-import scpipelines
+import cribbslab
 
 
 def printListInColumns(l, ncolumns):
@@ -72,28 +72,20 @@ def main(argv=None):
     paths = [path]
 
     if len(argv) == 1 or argv[1] == "--help" or argv[1] == "-h":
-
-        print((globals()["__doc__"]))
-        print("The list of available sections are:\n")
-        return
-
-    elif argv[1] == "main":
-        print((globals()["__doc__"]))
-
         pipelines = []
-        pipelines.extend(glob.glob(os.path.join(path, "pipeline_*.py")))
-        print("The list of available pipelines is:\n")
+        for path in paths:
+            pipelines.extend(glob.glob(os.path.join(path, "pipeline_*.py")))
+        print((globals()["__doc__"]))
+        print("The list of available pipelines are:\n")
         print("{}\n".format(
             printListInColumns(
                 sorted([os.path.basename(x)[len("pipeline_"):-len(".py")] for x in pipelines]),
                 3)))
-
-    try:
-        command = argv[2]
-        pipeline = "pipeline_{}".format(command)
-    except:
-        print("No pipeline has been selected under the %s section" % (argv[1]))
         return
+
+    command = argv[1]
+    command = re.sub("-", "_", command)
+    pipeline = "pipeline_{}".format(command)
 
     # remove 'scflow' from sys.argv
     del sys.argv[0]
