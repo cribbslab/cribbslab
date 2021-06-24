@@ -1,20 +1,22 @@
-'''test_import - test importing all modules
-===========================================
+'''test_import
+==============
 
-:Author: Andreas Heger
-:Release: $Id$
-:Date: |today|
-:Tags: Python
+:Author: Adam Cribbs
+
 
 Purpose
 -------
 
-This script attempts to import all the python code in the cgat-core
-repository.
+This script attempts to import all the python code
+in the cgat-core repository.
 
 Importing a script/module is a pre-requisite for building
 documentation with sphinx. A script/module that can not be imported
 will fail within sphinx.
+
+This script is best run within nosetests::
+
+   nosetests tests/test_import.py
 
 '''
 
@@ -23,10 +25,13 @@ import glob
 import traceback
 import imp
 
+from nose.tools import ok_
+
 # DIRECTORIES to examine
 EXPRESSIONS = (
-    ('FirstLevel', 'cgatcore/*.py'),
-    ('SecondLevel', 'cgatcore/pipeline/*.py'))
+    ('FirstLevel', 'scpipelines/__init__.py'),
+    ('SecondLevel', 'scpipelines/entry.py'),
+    ('ThirdLevel', 'scpipelines/version.py'))
 
 # Code to exclude
 EXCLUDE = ()
@@ -55,18 +60,20 @@ def check_import(filename, outfile):
         outfile.write("FAIL %s\n%s\n" % (basename, msg))
         outfile.flush()
         traceback.print_exc(file=outfile)
-        assert False, '%s scripts/modules - ImportError: %s' % (basename, msg)
+        ok_(False, '%s scripts/modules - ImportError: %s' %
+            (basename, msg))
     except Exception as msg:
         outfile.write("FAIL %s\n%s\n" % (basename, msg))
         outfile.flush()
 
         traceback.print_exc(file=outfile)
-        assert False, '%s scripts/modules - Exception: %s' % (basename, str(msg))
+        ok_(False, '%s scripts/modules - Exception: %s' %
+            (basename, str(msg)))
 
-    assert True
+    ok_(True)
 
 
-def test_import():
+def test_imports():
     '''test importing
 
     Relative imports will cause a failure because
