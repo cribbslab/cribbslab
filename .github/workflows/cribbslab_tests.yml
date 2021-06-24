@@ -44,4 +44,4 @@ jobs:
       - name: Test
         run: |
           python setup.py install
-          pytest --pep8 tests
+          pycodestyle tests
