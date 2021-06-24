@@ -1,4 +1,4 @@
-name: cgatcore
+name: cribbslab
 
 on: [push, pull_request]
 
