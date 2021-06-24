@@ -79,10 +79,10 @@ def main(argv=None):
     args = P.initialize(argv,
                         config_file="template.yml",
                         defaults={
-            "min_value": 0.0,
-            "num_samples": 1000,
-            "mu": 0.0,
-            "sigma": 1.0},
+                        "min_value": 0.0,
+                        "num_samples": 1000,
+                        "mu": 0.0,
+                        "sigma": 1.0},
                         unknowns=True)
 
     pipeline = ruffus.Pipeline("template_pipeline")
