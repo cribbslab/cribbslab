@@ -44,4 +44,4 @@ jobs:
       - name: Test
         run: |
           python setup.py install
-          pycodestyle tests
+          pycodestyle --ignore=E501 tests
