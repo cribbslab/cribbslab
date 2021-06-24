@@ -8,6 +8,7 @@ channels:
 dependencies:
 # python dependencies
 - cgatcore
+- nose
 - python
 - gevent
 - numpy

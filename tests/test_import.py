@@ -23,7 +23,7 @@ This script is best run within nosetests::
 import os
 import glob
 import traceback
-import imp
+import importlib
 
 from nose.tools import ok_
 
@@ -54,7 +54,9 @@ def check_import(filename, outfile):
         return
 
     try:
-        imp.load_source(basename, filename)
+        spec = importlib.util.spec_from_file_location(basename, filename)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
 
     except ImportError as msg:
         outfile.write("FAIL %s\n%s\n" % (basename, msg))
