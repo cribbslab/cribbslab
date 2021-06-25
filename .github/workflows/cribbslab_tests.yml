@@ -48,3 +48,4 @@ jobs:
           python tests/template_pipeline.py make all
           nosetests -v tests/test_import.py
           nosetests -v tests/test_style.py
+          nosetests -v tests/test_pipeline_control.py
