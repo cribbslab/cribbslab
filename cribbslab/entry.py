@@ -68,7 +68,6 @@ def main(argv=None):
     print(cribbslab.__file__)
     path = os.path.abspath(os.path.dirname(cribbslab.__file__))
 
-
     paths = [path]
 
     if len(argv) == 1 or argv[1] == "--help" or argv[1] == "-h":
