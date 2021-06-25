@@ -1,0 +1,36 @@
+name: cgat-core
+
+channels:
+- conda-forge
+- bioconda
+- defaults
+
+dependencies:
+# python dependencies
+- cgatcore
+- nose
+- pycodestyle
+- python
+- gevent
+- numpy
+- pandas
+- paramiko
+- pep8
+- pytest<=5.4.3
+- pytest-pep8
+- drmaa
+- pyyaml>=5.1
+- ruffus
+- setuptools
+- six
+- sqlalchemy
+# Misc dependencies
+- coreutils
+- nomkl
+- time
+- boto3
+- google-cloud-storage
+- google-cloud-sdk
+- ftputil
+- pysftp
+- apsw
