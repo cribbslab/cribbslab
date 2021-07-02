@@ -127,6 +127,11 @@ def kallisto_multiqc(infiles, outfile):
 def full():
     pass
 
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv
+    P.main(argv)
+    
 # this main function lets it work from the command line - tells cgatcore pipeline to run the code
 if __name__ == '__main__':
     sys.exit( P.main(sys.argv) )
