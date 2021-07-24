@@ -78,7 +78,7 @@ def multiqc(infiles, outfile):
 
 # Restructure fasta reference transcriptome file into a kallisto-friendly index
 @follows (mkdir ("kalindex"))
-@transform("*.fa.gz", regex(r'(.*).fa.gz'), r'kalindex/\1.idx')
+@transform(PARAMS['cdna_fasta'], regex(r'(.*).fa.gz'), r'kalindex/\1.idx')
 def kallisto_index(infile, outfile):
     ''' run multiqc to transform fasta format to kallisto format
     input:
