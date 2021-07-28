@@ -36,7 +36,7 @@ jobs:
           channels: conda-forge, bioconda, defaults
           channel-priority: true
           activate-environment: cgat-core
-          environment-file: conda/environments/cgat-core.yml
+          environment-file: conda/environments/cribbslab.yml
       - name: Show conda
         run: |
           conda info
