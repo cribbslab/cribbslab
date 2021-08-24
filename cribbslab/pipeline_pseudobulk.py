@@ -74,7 +74,7 @@ def multiqc(infiles, outfile):
     statement = """export LC_ALL=en_US.UTF-8 &&
                    export LANG=en_US.UTF-8 &&
                    multiqc fastqc/ -f -d -s -n %(outfile)s""" # -n - specifies the name of the output file, -f - forces to overwrite the report (if it was run before) so the multiqc outfile is always updated
-    P.run(statement)
+    P.run(statement, job_memory="30G")
 
 # Restructure fasta reference transcriptome file into a kallisto-friendly index
 @follows (mkdir ("kalindex"))
