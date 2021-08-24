@@ -10,7 +10,7 @@ at the botnar research centre Oxford.
 I recommend using miniconda to install a conda environment followed by mamba:
 
     conda install mamba
-    mamba env create -f conda/environments/cgat-core.yml
+    mamba env create -f conda/environments/cribbslab.yml
 
 ### Manual installation
 
