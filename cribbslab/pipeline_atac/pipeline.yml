@@ -1,0 +1,8 @@
+# Not needed if you set your .cgat.yml
+#environment: pbulk_env
+#queue: all.q
+
+
+# Download reference fasta data e.g.# Human: wget ftp://ftp.ensembl.org/pub/release-99/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+# Mouse: wget ftp://ftp.ensembl.org/pub/release-99/fasta/mus_musculus/cdna/Mus_musculus.GRCm38.cdna.all.fa.gz
+genome: 
