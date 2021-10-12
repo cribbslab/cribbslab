@@ -76,9 +76,10 @@ def multiqc(infiles, outfile):
                    multiqc fastqc/ -f -d -s -n %(outfile)s""" # -n - specifies the name of the output file, -f - forces to overwrite the report (if it was run before) so the multiqc outfile is always updated
     P.run(statement, job_memory="30G")
 
-# Restructure fasta reference transcriptome file into a kallisto-friendly index
+
+@active_if(PARAMS['bowtie2_index_true'])
 @follows (mkdir ("bowtie2_index"))
-@transform(PARAMS['genome_fasta'], regex('(.*).fa'), r'bowtie2_index/\1.idx')
+@transform(PARAMS['genome_fasta'], regex('(.*).fa'), r'bowtie2_index/\1.1.bt2')
 def bowtie2_index(infile, outfile):
     ''' Build a bowtie2 index
     input:
@@ -88,15 +89,15 @@ def bowtie2_index(infile, outfile):
     example statement:
         kallisto index -i %(outfile)s %(infile)s
     '''
-    name = infile.replace(".fa", "")
-    name = "bowtie2_index" + name
+    name = os.path.basename(infile.replace(".fa", ""))
+    name = "bowtie2_index/" + name
     
-    statement = '''bowtie2-build %(outfile)s %(name)s'''
+    statement = '''bowtie2-build %(infile)s %(name)s'''
     
     P.run(statement)
 
 @follows (mkdir ("Bowtie2"))
-@transform('*.fastq.1.gz', regex(r'(\S+).fastq.1.gz'), add_inputs(kallisto_index), r'Bowtie2/\1.bam')
+@transform('*.fastq.1.gz', regex(r'(\S+).fastq.1.gz'), add_inputs(bowtie2_index), r'Bowtie2/\1.bam')
 def bowtie2_map (infiles, outfile):
         ''' Mapping command to align reads to genome and produce bam file.
         input:
@@ -106,26 +107,90 @@ def bowtie2_map (infiles, outfile):
             bowtie2 mapped bam file
         '''
 
-        infile, index_file = infiles
-        infile1 = infile
-        infile2 = infile.replace(".1.gz",".2.gz")
-        output_folder = P.snip(outfile, "/abundance.tsv")
-        statement = '''kallisto quant %(kal_quant_options)s
-                        -t %(kal_quant_threads)s
-                        -b %(kal_quant_bootstraps)s
-                        -i %(index_file)s
-                        -o %(output_folder)s %(infile1)s %(infile2)s > %(outfile)s.log 2>&1'''
-        P.run(statement, job_threads = PARAMS["kal_quant_threads"])
+        if not PARAMS['bowtie2_index_true']:
+            infile = infiles
+        else:
+            infile, index_file = infiles
+        
+        infile1 = "".join(infile)
+        infile2 = infile1.replace(".1.gz",".2.gz")
+        
+        if not PARAMS['bowtie2_index_true']:
+            index_file = PARAMS['bowtie2_index_path']
+
+        name = index_file.replace(".1.bt2", "")
+        bamname = outfile.replace(".bam", "")
+
+        statement = '''bowtie2 --very-sensitive -k 3 -x %(name)s -1 %(infile1)s -2 %(infile2)s > %(bamname)s.bowtie.sam 2> %(bamname)s.log &&
+                       samtools view -S -b %(bamname)s.bowtie.sam > %(bamname)s.bowtie.bam &&
+                       samtools sort %(bamname)s.bowtie.bam -o %(outfile)s &&
+                       samtools index %(outfile)s &&
+                       rm -rf %(bamname)s.bowtie.sam &&
+                       rm -rf %(bamname)s.bowtie.bam'''
+
+        P.run(statement,
+              job_threads = PARAMS["bowtie2_threads"],
+              job_memory = PARAMS['bowtie2_memory'])
 
 
-@merge(bowtie2_map, "mapping_qc/Bowtie2_multiqc.html")
+
+@merge(bowtie2_map, "reports/Bowtie2_multiqc.html")
 def bowtie2_multiqc(infiles, outfile):
     statement = '''export LC_ALL=en_US.UTF-8 &&
                    export LANG=en_US.UTF-8 &&
-                   multiqc -f -n Bowtie2_multiqc.html -o mapping_qc'''
+                   multiqc Bowtie2/ -f -n %(outfile)s'''
     P.run(statement)
 
-@follows(bowtie2_multiqc)
+
+@follows(mkdir("HMMRATAC"))
+@transform(bowtie2_map, regex(r'Bowtie2/(\S+).bam'), r'HMMRATAC/\1.genome.info')
+def make_genomeinfo(infile, outfile):
+    '''Make a genome.info file for running HMMRATAC'''
+
+    statement = '''samtools view -H %(infile)s| perl -ne 'if(/^@SQ.*?SN:(\w+)\s+LN:(\d+)/){print $1,"\\t",$2,"\\n"}' > %(outfile)s'''
+
+    P.run(statement)
+
+
+###################################################
+### Peak callers
+###################################################
+
+
+@transform(make_genomeinfo, regex(r'HMMRATAC/(\S+).genome.info'), r'HMMRATAC/\1_peaks.gappedPeak')
+def run_hmmratac(infile, outfile):
+    '''Run HMMRATAC '''
+
+    bamfile = infile.replace(".genome.info", ".bam")
+    bamfile = bamfile.replace("HMMRATAC/", "Bowtie2/")
+
+    outname = outfile.replace("_peaks.gappedPeak", "")
+
+    statement = '''HMMRATAC -b %(bamfile)s -i %(bamfile)s.bai -g %(infile)s -o %(outname)s --window 1000000'''
+
+    P.run(statement, job_memory="50G")
+
+
+@transform(run_hmmratac, regex(r'HMMRATAC/(\S+)_peaks.gappedPeak'), r'HMMRATAC/\1_filterpeaks.gappedPeak')
+def filter_hmmratac(infile, outfile):
+
+
+    statement = '''awk -v OFS="\t" '$13>=10 {print}' %(infile)s > %(outfile)s '''
+
+    P.run(statement)
+
+
+@transform(run_hmmratac, regex(r'HMMRATAC/(\S+)_peaks.gappedPeak'), r'HMMRATAC/\1_filteredSummits.bed')
+def filtersummit_hmmratac(infile, outfile):
+
+    infile = infile.replace("_peaks.gappedPeak", "_summits.bed")
+
+    statement = '''awk -v OFS="\t" '$5>=10 {print}' %(infile)s > %(outfile)s'''
+
+    P.run(statement)
+
+
+@follows(multiqc, bowtie2_multiqc, filter_hmmratac, filtersummit_hmmratac)
 def full():
     pass
 
