@@ -66,7 +66,7 @@ def run_diffbind(infile, outfile):
 
     statement = '''Rscript %(R_SRC_PATH)s/DiffBind.R --design %(infile)s --output %(outfile)s'''
 
-    P.run(statement)
+    P.run(statement, job_memory="100G")
 
 @follows(run_diffbind)
 def full():

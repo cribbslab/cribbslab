@@ -4,6 +4,9 @@ author: Adam Cribbs
 ===========================
 To run locally: python pipeline_atac.py make full --local
 
+To run macs3 functions, you will need to create a seperate conda env called macs3 because
+there are incompatibilities with cgatcore and other software installation options.
+
 Overview:
     - This pipeline uses Bowtie2 to align reads
       for bulkATACseq data analysis
@@ -32,6 +35,7 @@ import sys
 import os
 from ruffus import *
 import cgatcore.pipeline as P
+import cgatcore.iotools as iotools
 
 # load options from the config file
 PARAMS = P.get_parameters(
@@ -188,6 +192,35 @@ def filtersummit_hmmratac(infile, outfile):
     statement = '''awk -v OFS="\t" '$5>=10 {print}' %(infile)s > %(outfile)s'''
 
     P.run(statement)
+
+
+@transform(filtersummit_hmmratac, regex(r'HMMRATAC/(\S+)_filteredSummits.bed'), r'HMMRATAC/\1_diffbind.bed')
+def generate_bedfile(infile, outfile):
+    '''Convert to bed file 50bp +/- from summit'''
+
+    infile = iotools.open_file(infile)
+    outfile = iotools.open_file(outfile, "w")
+    for line in infile:
+    
+        chrom, start, end, peak, value = line.strip().split("\t")
+        start = int(start) - 50
+        end = int(end) + 50
+    
+        outfile.write("%s\t%s\t%s\t%s\t%s\n"%(chrom, start, end, peak, value))
+    outfile.close()
+    
+
+@follows(mkdir("MACS3"))
+@transform(bowtie2_map, regex(r'Bowtie2/(\S+).bam'), r'MACS3/\1_summits.bed')
+def peakcall_macs3(infile, outfile):
+    '''Call peaks using macs3 '''
+
+    name = outfile.replace("_summits.bed", "")
+
+    statement = '''macs3 callpeak -f BAMPE -t %(infile)s -g hs -n %(name)s -B -q 0.01 '''
+
+    P.run(statement, job_condaenv="macs3", job_memory="50G")
+
 
 
 @follows(multiqc, bowtie2_multiqc, filter_hmmratac, filtersummit_hmmratac)
