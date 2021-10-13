@@ -1,0 +1,14 @@
+# Not needed if you set your .cgat.yml
+#environment: pbulk_env
+#queue: all.q
+
+# Specify if you want to run bowtie2-build or use your own index
+bowtie2_index_true: 0
+
+bowtie2_index_path: /t1-data/project/cribbslab/shared/resources/bowtie/hg38
+
+bowtie2_threads: 5
+
+bowtie2_memory: 40G
+
+genome_fasta: /t1-data/project/cribbslab/shared/resources/index/hg38.fa 

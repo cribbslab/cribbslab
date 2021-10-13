@@ -27,7 +27,8 @@ suppressPackageStartupMessages(library(DiffBind))
 
 # Load the design file
 samples <- read.csv(design)
-names(samples)
+print(names(samples))
+print(samples)
 
 # Construct the dba object
 dba_object <- dba(sampleSheet = samples) 
@@ -38,9 +39,8 @@ dba_object
 plot(dba_object)
 
 #Count reads
-dba_object <- dba.count(dba_object, summits=250)
+#dba_object <- dba.count(dba_object)
 
-dba_object
 
 # Plot correlation heatmap based on the counts
 plot(dba_object)
