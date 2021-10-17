@@ -12,3 +12,31 @@ bowtie2_threads: 5
 bowtie2_memory: 40G
 
 genome_fasta: /t1-data/project/cribbslab/shared/resources/index/hg38.fa 
+
+merge_pattern_input: '(\S+)_L\d+'
+
+merge_pattern_output: '\1'
+
+
+#######
+# deeptools
+##########
+
+# specify which computeMatrix function to run. options = [scale-regions or reference-point]
+matrix_funct: reference-point
+
+# specify the bed file region for computing over a given region
+bed_deeptools: coding_gene_tss.bed
+
+# specify options for compute metrix
+computematrix_options: -a 3000 -b 3000
+
+
+############
+# ChIP peak Annotation
+############
+
+# It is difficult to install the package into the current environment so
+# it need to be installed in a seperate conda env. Specify the conda env name it
+# is in here.
+chippeakanno_condaenv: 'diffbind'
