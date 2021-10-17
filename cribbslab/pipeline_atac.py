@@ -211,11 +211,11 @@ def generate_bedfile(infile, outfile):
     
 
 @follows(mkdir("MACS3"))
-@transform(bowtie2_map, regex(r'Bowtie2/(\S+).bam'), r'MACS3/\1_summits.bed')
+@transform(bowtie2_map, regex(r'Bowtie2/(\S+).bam'), r'MACS3/\1_peaks.xls')
 def peakcall_macs3(infile, outfile):
     '''Call peaks using macs3 '''
 
-    name = outfile.replace("_summits.bed", "")
+    name = outfile.replace("_peaks.xls", "")
 
     statement = '''macs3 callpeak -f BAMPE -t %(infile)s -g hs -n %(name)s -B -q 0.01 '''
 
@@ -223,7 +223,83 @@ def peakcall_macs3(infile, outfile):
 
 
 
-@follows(multiqc, bowtie2_multiqc, filter_hmmratac, filtersummit_hmmratac)
+@collate(bowtie2_map,
+         regex("Bowtie2/%s.bam" % PARAMS["merge_pattern_input"].strip()),
+         r"Bowtie2/%s_merged.bam" % (PARAMS["merge_pattern_output"].strip()))
+def merge_bamfiles(infiles, outfile):
+    '''merge bam files according to a merge pattern '''
+
+    infiles = " ".join(infiles)
+
+    statement = '''samtools merge -o %(outfile)s %(infiles)s'''
+
+
+    P.run(statement)
+
+
+@transform(merge_bamfiles,
+           regex("Bowtie2/(\S+)_merged.bam"),
+           r"Bowtie2/\1_merged_RPGC.bw")
+def make_merge_bigwig(infile, outfile):
+    '''convert merged bam to bigwig with PRGC normalisation using deeptools'''
+
+    statement = '''bamCoverage -b %(infile)s -o %(outfile)s --binSize 10 --normalizeUsing RPGC --ignoreForNormalization chrX  --effectiveGenomeSize 2150570000 --extendReads'''
+
+    P.run(statement)
+
+
+@transform(bowtie2_map,
+           regex("Bowtie2/(\S+).bam"),
+           r"Bowtie2/\1_RPGC.bw")
+def make_bigwig(infile, outfile):
+    '''convert  bam to bigwig with PRGC normalisation using deeptools'''
+
+    statement = '''bamCoverage -b %(infile)s -o %(outfile)s --binSize 10 --normalizeUsing RPGC --ignoreForNormalization chrX  --effectiveGenomeSize 2150570000 --extendReads'''
+
+    P.run(statement)
+
+
+@follows(mkdir("Deeptools"))
+@transform(make_bigwig,
+           regex("Bowtie2/(\S+)_RPGC.bw"),
+           r"Deeptools/\1.mat.gz")
+def compute_deeptools_mat(infile, outfile):
+    '''Compute a deeptools matrix for each bam file for downstream plotting'''
+
+    statement = '''computeMatrix %(matrix_funct)s -S %(infile)s -R %(bed_deeptools)s %(computematrix_options)s -o %(outfile)s'''
+
+    P.run(statement)
+
+
+@transform(compute_deeptools_mat,
+           regex("Deeptools/(\S+).mat.gz"),
+           r"Deeptools/\1_heatmap.png")
+def plot_heatmap(infile, outfile):
+    '''Plot heatmap from compute matrix '''
+
+    name = infile.replace(".mat.gz", "")
+    name = name.replace("Deeptools/", "")
+
+    statement = '''plotHeatmap -m %(infile)s -o %(outfile)s --heatmapHeight 15 --plotTitle %(name)s'''
+
+    P.run(statement)
+
+
+@transform(peakcall_macs3, regex(r'MACS3/(\S+)_peaks.xls'), r'MACS3/\1_annotatePeaks.bed')
+def annotate_macs3(infile, outfile):
+    '''Annotate peaks using ChIPPeakAnno '''
+
+    R_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
+
+    name = infile.replace("_peaks.xls", "")
+    
+    statement = '''Rscript %(R_ROOT)s/ChiPAnnot.R --xls=%(infile)s --name=%(name)s'''
+
+    P.run(statement, job_condaenv=PARAMS["chippeakanno_condaenv"])
+
+
+
+@follows(multiqc, bowtie2_multiqc, filter_hmmratac, filtersummit_hmmratac, make_merge_bigwig, plot_heatmap)
 def full():
     pass
 
@@ -231,7 +307,7 @@ def main(argv=None):
     if argv is None:
         argv = sys.argv
     P.main(argv)
-    
-# this main function lets it work from the command line - tells cgatcore pipeline to run the code
+
+
 if __name__ == '__main__':
     sys.exit( P.main(sys.argv) )
