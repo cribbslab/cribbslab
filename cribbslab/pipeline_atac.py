@@ -299,7 +299,7 @@ def annotate_macs3(infile, outfile):
 
 
 
-@follows(multiqc, bowtie2_multiqc, filter_hmmratac, filtersummit_hmmratac, make_merge_bigwig, plot_heatmap)
+@follows(multiqc, bowtie2_multiqc, filter_hmmratac, filtersummit_hmmratac, make_merge_bigwig, plot_heatmap, peakcall_macs3)
 def full():
     pass
 
