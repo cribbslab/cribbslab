@@ -32,7 +32,7 @@ import sqlite3
 import cgatcore.experiment as E
 import cgat.BamTools.bamtools as Bamtools
 import cgatcore.pipeline as P
-import ModuleQuantchip as ModuleQuantchip
+import cribbslab.ModuleQuantchip as ModuleQuantchip
 
 # load options from the config file
 PARAMS = P.get_parameters(
