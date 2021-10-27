@@ -190,18 +190,18 @@ def plot_hist(infile, outfile):
     script
     """
 
+    R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                           "R"))
     control = infile
     dataframe = "design.tsv"
 
     control, treatment, inputD = ModuleQuantchip.extract_bam_files(dataframe, control)
 
-    statement = """ Rscript %(cribbslab)s/R/CoveragePlot.R
+    statement = """ Rscript %(R_SRC_PATH)s/CoveragePlot.R
                 --control=Hist.dir/%(control)s
                 --treatment=Hist.dir/%(treatment)s
                 --input=Hist.dir/%(inputD)s
                 """
-
-   
 
     P.run(statement)
 
@@ -255,10 +255,37 @@ def bedgraph_to_bw(infile, outfile):
 
     P.run(statement)
 
+
+if "merge_pattern_input" in PARAMS and PARAMS["merge_pattern_input"]:
+    BW_REGEX = regex(
+        r"bedGraph.dir/./%s.bw" % (
+            PARAMS["merge_pattern_input"].strip()))
+
+    # the last expression counts number of groups in pattern_input
+    BW_OUTPUT = r"mergeBedGraph.dir/%s.bw" % (
+            PARAMS["merge_pattern_output"].strip())
+
+    @follows(mkdir("mergeBedGraph.dir"))
+    @collate(bedgraph_to_bw,
+             BW_REGEX,
+             BW_OUTPUT)
+    def merge_bw(infiles, outfile):
+        """Merge bigWigs using mergeBigWig"""    
+
+        infiles = " ".join(infiles)
+
+        statement = '''bigWigMerge %(infiles)s %(outfile)s'''
+
+        P.run(statement)
+else:
+    def merge_bw():
+        pass
+
+
 # ---------------------------------------------------
 # Generic pipeline tasks
 @follows(getIdxstats,buildBedGraph, makeTagDirectory,
-         annotatePeaksBed, plot_hist, bedgraph_to_bw)
+         annotatePeaksBed, plot_hist, bedgraph_to_bw, merge_bw)
 def full():
     pass
 

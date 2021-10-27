@@ -38,3 +38,12 @@ quant:
 
 homer:
     options: '-size 4000 -hist 50'
+
+
+###########################################################
+# Options for mergeing bigwigs based on regex
+###########################################################
+
+merge_pattern_input: i\S+-(\S+)-\S+-(\S+)_\S+
+
+merge_pattern_output: \1-\2
