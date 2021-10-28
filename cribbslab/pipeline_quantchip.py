@@ -222,21 +222,25 @@ def find_peaks(infile, outfile):
     P.run(statement)
 
 
-@transform(CONTROLBAMS,
-           regex("(\S+).bam"),
+@follows(mkdir("annotate.dir"))
+@transform(buildBedGraph,
+           regex("bedGraph.dir/(\S+).bedgraph"),
            r"annotate.dir/\1.xls")
-def call_peaks_macs2(infile, outfile):
+def call_peaks_macs3(infile, outfile):
     """Will call peaks using MACS2 from a bedgraph"""
 
     out_dir = os.path.dirname(outfile)
     name = os.path.basename(outfile).replace(".xls","")
 
+    outname = outfile.replace("annotate.dir/", "")
+    outname = outname.replace(".xls", "")
+
     job_memory="50G"
     statement = """
-                macs2 callpeak -t %(infile)s -g hs -f BAMPE -q 0.99 -n %(name)s --outdir annotate.dir/ >& annotate.dir/%(name)s.log
+                macs3 bdgpeakcall -i %(infile)s  --outdir annotate.dir/ >& annotate.dir/%(name)s.log -o %(outname)s
                 """
 
-    P.run(statement, job_condaenv="macs2")
+    P.run(statement, job_condaenv="macs3", job_memory="50G")
 
 #####################################################
 # Create bigWig for plotting to IGV
@@ -285,7 +289,7 @@ else:
 # ---------------------------------------------------
 # Generic pipeline tasks
 @follows(getIdxstats,buildBedGraph, makeTagDirectory,
-         annotatePeaksBed, plot_hist, bedgraph_to_bw, merge_bw)
+         annotatePeaksBed, plot_hist, bedgraph_to_bw, merge_bw, call_peaks_macs3)
 def full():
     pass
 
