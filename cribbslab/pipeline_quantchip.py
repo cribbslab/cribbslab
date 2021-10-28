@@ -276,9 +276,15 @@ if "merge_pattern_input" in PARAMS and PARAMS["merge_pattern_input"]:
     def merge_bw(infiles, outfile):
         """Merge bigWigs using mergeBigWig"""    
 
+
         infiles = " ".join(infiles)
 
-        statement = '''bigWigMerge %(infiles)s %(outfile)s'''
+        tmpfile = P.get_temp_filename()
+        tmpfile2 = P.get_temp_filename()
+
+        statement = '''bigWigMerge %(infiles)s %(tmpfile)s &&
+                       LC_COLLATE-C sort -k1,1 -k2,2n -o %(tmpfile2)s %(tmpfile)s &&
+                       bedGraphToBigWig %(tmpfile2)s %(contig_file)s %(outfile)s'''
 
         P.run(statement)
 else:
