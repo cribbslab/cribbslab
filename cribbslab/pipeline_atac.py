@@ -83,7 +83,7 @@ def multiqc(infiles, outfile):
 
 @active_if(PARAMS['bowtie2_index_true'])
 @follows (mkdir ("bowtie2_index"))
-@transform(PARAMS['genome_fasta'], regex('(.*).fa'), r'bowtie2_index/\1.1.bt2')
+@transform(PARAMS['genome_fasta'], regex('\S+/(\S+).fa'), r'bowtie2_index/\1.1.bt2')
 def bowtie2_index(infile, outfile):
     ''' Build a bowtie2 index
     input:
