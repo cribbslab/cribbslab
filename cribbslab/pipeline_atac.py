@@ -125,7 +125,7 @@ def bowtie2_map (infiles, outfile):
         name = index_file.replace(".1.bt2", "")
         bamname = outfile.replace(".bam", "")
 
-        statement = '''bowtie2 --very-sensitive -k 3 -x %(name)s -1 %(infile1)s -2 %(infile2)s > %(bamname)s.bowtie.sam 2> %(bamname)s.log &&
+        statement = '''bowtie2 --sensitive -k 3 -x %(name)s -1 %(infile1)s -2 %(infile2)s > %(bamname)s.bowtie.sam 2> %(bamname)s.log &&
                        samtools view -S -b %(bamname)s.bowtie.sam > %(bamname)s.bowtie.bam &&
                        samtools sort %(bamname)s.bowtie.bam -o %(outfile)s &&
                        samtools index %(outfile)s &&
