@@ -104,16 +104,27 @@ def kal_quant (infiles, outfile):
             run_info.json file with info about the run get_parameters
             abundance.h5 file with main quantification and bootstraps
         '''
-        infile, index_file = infiles
-        infile1 = infile
-        infile2 = infile.replace(".1.gz",".2.gz")
-        output_folder = P.snip(outfile, "/abundance.tsv")
-        statement = '''kallisto quant %(kal_quant_options)s
+
+        if PARAMS['kallisto_single']:
+            infile, index_file = infiles
+            output_folder = P.snip(outfile, "/abundance.tsv")
+            statement = '''kallisto quant %(kal_quant_options)s
+                        -t %(kal_quant_threads)s
+                        -b %(kal_quant_bootstraps)s
+                        -i %(index_file)s
+                        -o %(output_folder)s --single %(infile)s > %(outfile)s.log 2>&1'''
+            P.run(statement, job_threads = PARAMS["kal_quant_threads"])
+        else:
+            infile, index_file = infiles
+            infile1 = infile
+            infile2 = infile.replace(".1.gz",".2.gz")
+            output_folder = P.snip(outfile, "/abundance.tsv")
+            statement = '''kallisto quant %(kal_quant_options)s
                         -t %(kal_quant_threads)s
                         -b %(kal_quant_bootstraps)s
                         -i %(index_file)s
                         -o %(output_folder)s %(infile1)s %(infile2)s > %(outfile)s.log 2>&1'''
-        P.run(statement, job_threads = PARAMS["kal_quant_threads"])
+            P.run(statement, job_threads = PARAMS["kal_quant_threads"])
 
 @follows(kal_quant)
 @merge(kal_quant, "quant/kallisto_multiqc.html")
