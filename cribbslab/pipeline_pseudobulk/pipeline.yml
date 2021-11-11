@@ -7,9 +7,14 @@
 # Mouse: wget ftp://ftp.ensembl.org/pub/release-99/fasta/mus_musculus/cdna/Mus_musculus.GRCm38.cdna.all.fa.gz
 cdna_fasta: Mus_musculus.GRCm38.cdna.all.fa.gz
 
+# Specify if there is only single-end 
+kallisto_single: 0
+
+
 kal_quant:
     options: --rf-stranded  #Strand specific reads, first read forward
     threads: 8
     bootstraps: 100        #Number of time the alignment is re-run, used to model technical variance in the dataset
+
 
 #test
