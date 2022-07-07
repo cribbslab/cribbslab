@@ -15,4 +15,4 @@ kal_quant:
     options: --rf-stranded  #Strand specific reads, first read forward
     threads: 8
     bootstraps: 100        #Number of time the alignment is re-run, used to model technical variance in the dataset
-    pseudobulk: False # specify if pseudobulk present
+    pseudobam: False # specify if pseudobulk present
