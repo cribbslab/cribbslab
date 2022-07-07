@@ -51,7 +51,7 @@ SEQUENCESUFFIXES = ("*R1_001.fastq.gz",
 
 FASTQTARGET = tuple([os.path.join(PARAMS['inlocation'], '*', suffix_name)
                        for suffix_name in SEQUENCESUFFIXES])
-print(FASTQTARGET)
+
 @collate(FASTQTARGET,
          regex("%s.fastq.gz" % PARAMS["merge_pattern_input"].strip()),
          r"\1.fastq.\2.gz")

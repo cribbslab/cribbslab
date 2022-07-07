@@ -112,7 +112,7 @@ def kal_quant (infiles, outfile):
                         -t %(kal_quant_threads)s
                         -b %(kal_quant_bootstraps)s
                         -i %(index_file)s
-                        -o %(output_folder)s --single %(infile)s > %(outfile)s.log 2>&1'''
+                        -o %(output_folder)s --single %(infile)s --pseudobam > %(outfile)s.log 2>&1'''
             P.run(statement, job_threads = PARAMS["kal_quant_threads"])
         else:
             infile, index_file = infiles
@@ -123,7 +123,7 @@ def kal_quant (infiles, outfile):
                         -t %(kal_quant_threads)s
                         -b %(kal_quant_bootstraps)s
                         -i %(index_file)s
-                        -o %(output_folder)s %(infile1)s %(infile2)s > %(outfile)s.log 2>&1'''
+                        -o %(output_folder)s %(infile1)s %(infile2)s --pseudobam > %(outfile)s.log 2>&1'''
             P.run(statement, job_threads = PARAMS["kal_quant_threads"])
 
 @follows(kal_quant)
