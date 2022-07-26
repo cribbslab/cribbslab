@@ -1,27 +1,28 @@
 """===========================
-Pseudoalignment pipeline for bulkRNAseq data
-author: Alina Kurjan
+Mapping pipeline for bulkRNAseq data
+author: Adam Cribbs
 ===========================
-To run locally: python pipeline_pseudobulk.py make full --local
+To run locally: python pipeline_featurecounts.py make full --local
 
 Overview:
-    - This pipeline uses pseudoalignment tool Kallisto to align reads
-      for bulkRNAseq data analysis
+    - This pipeline uses the hisat2 mapping tool to align reads
+      for bulkRNAseq data analysis and then featurecounts to count
+      reads to features
 
 Input files:
     - Paired end BulkRNA-seq fastq.gz files labeled sampleA.fastq.1.gz and sampleA.fastq.2.gz
       where possitions 1 & 2 represent read 1 and 2 from paired end sequencing.
-    - Zipped fasta (.fa.gz) reference transcriptome file for relevant model organism
-      (download from https://www.ensembl.org/info/data/ftp/index.html).
+    - Zipped fasta (.gtf.gz) reference genome transfer file file for relevant model organism.
 
 Output files:
     - multiqc html reports (before and after pseudoalignment)
-    - abundance.tsv
+    - merged counts matrix
 
 Processing:
-    - fastqc
-    - mapping transcripts using Kallisto
-    - Kallisto QC
+    - fastqc for reads
+    - mapping transcripts using hisat2
+    - counting features using featurecounts 
+    - hisat2 QC
 
 Code
 ====
@@ -40,10 +41,25 @@ PARAMS = P.get_parameters(
      "pipeline.yml"])
 
 
+
+SEQUENCESUFFIXES = ("*.fastq.1.gz",
+                    "*.fastq.gz",
+                    "*.fa.gz",
+                    )
+
+SEQUENCEFILES = tuple([os.path.join('.', suffix_name)
+                       for suffix_name in SEQUENCESUFFIXES])
+
+SEQUENCEFILES_REGEX = regex(
+    r".*/(\S+).(fastq.1.gz|fastq.gz|fa.gz)")
+
+
+
+
 @follows(mkdir("fastqc"))                       # make a directory called fastqc, and only proceed once this directory is made
-@transform("*.fastq.*.gz",                      # (*) - match any character any number of times [global expression, glob]
-            regex(r"(.*).fastq.(.*).gz"),       # (.*) - match any character (.) any number of times (*) [regular expression, regex]
-            r"fastqc/\1.fastq.\2_fastqc.html")  # r - raw string to python: fastqc/ - create the following file names in fastqc dir. \1 matches the first (.*) in regex
+@transform(SEQUENCEFILES,                      # (*) - match any character any number of times [global expression, glob]
+            SEQUENCEFILES_REGEX,       # (.*) - match any character (.) any number of times (*) [regular expression, regex]
+            r"fastqc/fastqc.html")  # r - raw string to python: fastqc/ - create the following file names in fastqc dir. \1 matches the first (.*) in regex
 def fastqc(infile, outfile):
     ''' run fastqc on all fastq.gz files
     input:
@@ -76,11 +92,13 @@ def multiqc(infiles, outfile):
                    multiqc fastqc/ -f -d -s -n %(outfile)s""" # -n - specifies the name of the output file, -f - forces to overwrite the report (if it was run before) so the multiqc outfile is always updated
     P.run(statement, job_memory="30G")
 
-# Restructure fasta reference transcriptome file into a kallisto-friendly index
-@follows (mkdir ("kalindex"))
-@transform(PARAMS['cdna_fasta'], regex('(.*).fa.gz'), r'kalindex/\1.idx')
-def kallisto_index(infile, outfile):
-    ''' run multiqc to transform fasta format to kallisto format
+
+@follows (mkdir ("hisat_mapping"))
+@transform(SEQUENCEFILES,                      # (*) - match any character any number of times [global expression, glob]
+            SEQUENCEFILES_REGEX,
+           r'hisat_mapping/\1.bam')
+def hisat2_map(infile, outfile):
+    ''' run hisat2 index
     input:
         zipped reference trascriptome fasta file (.fa.gz)
     output:
@@ -88,57 +106,83 @@ def kallisto_index(infile, outfile):
     example statement:
         kallisto index -i %(outfile)s %(infile)s
     '''
-    statement = '''kallisto index -i %(outfile)s %(infile)s'''
+
+    job_threads = PARAMS["hisat2_threads"]
+    job_memory = PARAMS["hisat2_memory"]
+    
+    index_prefix = PARAMS['hisat2_index_dir'] + "/" + PARAMS['genome']
+
+
+    if PARAMS['hisat2_paired']:
+
+        infile2 = infile.replace('.1.gz','.2.gz')
+
+        statement = '''hisat2 %%(hisat2_options)s -x %(index_prefix)s --threads %%(job_threads)i -1 %(infile)s
+                       -2 %(infile2)s  2> %(outfile)s.log | samtools view -bS > %(outfile)s  2>> %(outfile)s.log''' % locals()
+    else:
+
+        statement = '''hisat2 %%(hisat2_options)s -x %(index_prefix)s --threads %%(job_threads)i -U %(infile)s 2> %(outfile)s.log | samtools view -bS > %(outfile)s  2>> %(outfile)s.log''' % locals()
+
     P.run(statement)
 
-@follows (mkdir ("quant"))
-@transform('*.fastq.1.gz', regex(r'(\S+).fastq.1.gz'), add_inputs(kallisto_index), r'quant/\1/abundance.tsv')
-def kal_quant (infiles, outfile):
-        ''' pseudoaligment command to align reads to transcripts
-        input:
-            zipped, paired fastq files.
-            kallisto index file.
-        output:
-            abundance.tsv file with estimated counts of transcripts per million (TPM)
-            abundance.tsv.log file with run log
-            run_info.json file with info about the run get_parameters
-            abundance.h5 file with main quantification and bootstraps
-        '''
-        if PARAMS['pseudobam']:
-            pseudobam = '--pseudobam'
-        else:
-            pseudobam = ''
 
-        if PARAMS['kallisto_single']:
-            infile, index_file = infiles
-            output_folder = P.snip(outfile, "/abundance.tsv")
-            statement = '''kallisto quant %(kal_quant_options)s
-                        -t %(kal_quant_threads)s
-                        -b %(kal_quant_bootstraps)s
-                        -i %(index_file)s
-                        -o %(output_folder)s --single %(infile)s %(pseudobam)s > %(outfile)s.log 2>&1'''
-            P.run(statement, job_threads = PARAMS["kal_quant_threads"])
-        else:
-            infile, index_file = infiles
-            infile1 = infile
-            infile2 = infile.replace(".1.gz",".2.gz")
-            output_folder = P.snip(outfile, "/abundance.tsv")
-            statement = '''kallisto quant %(kal_quant_options)s
-                        -t %(kal_quant_threads)s
-                        -b %(kal_quant_bootstraps)s
-                        -i %(index_file)s
-                        -o %(output_folder)s %(infile1)s %(infile2)s  %(pseudobam)s > %(outfile)s.log 2>&1'''
-            P.run(statement, job_threads = PARAMS["kal_quant_threads"])
+@follows(mkdir("featurecounts"))
+@transform(hisat2_map,
+           regex("hisat_mapping/(\S+).bam"),
+           r"featurecounts/\1.features.tsv")
+def count_features(infile, outfile):
+    """
+    runs featurecounts to count reads over features
+    """
 
-@follows(kal_quant)
-@merge(kal_quant, "quant/kallisto_multiqc.html")
-def kallisto_multiqc(infiles, outfile):
+    gtf = PARAMS['featurecounts_gtf']
+
+
+    name = os.path.basename(infile)
+    intermediate = name.replace(".bam",".tsv.tmp")
+
+    statement = """
+                featureCounts -t exon -g gene_id -a %(gtf)s -o featurecounts.dir/%(intermediate)s %(infile)s &&
+                cut -f 1,7 featurecounts.dir/%(intermediate)s > %(outfile)s
+               """
+
+    P.run(statement)
+
+
+@collate(count_features,
+         regex("featurecounts/(\S+).features.tsv"),
+         r"featurecounts.tsv.gz")
+def merge_features(infiles, outfile):
+    """This function will merge all of the outputs from featurecounts and
+    create a single tsv file for all samples"""
+
+    def merge_feature_data(infiles):
+        '''will merge all of the input files '''
+
+        final_df = pd.DataFrame()
+        for infile in infiles:
+            tmp_df = pd.read_table(infile, sep="\t", index_col=0, skiprows=1)
+            final_df = final_df.merge(tmp_df, how="outer", left_index=True, right_index=True)
+        final_df = final_df.rename(columns=lambda x: re.sub(".bam","",x))
+        final_df = final_df.rename(columns=lambda x: re.sub("hisat_mapping/","",x))
+
+        return final_df
+
+    features = merge_feature_data(infiles)
+
+    features.to_csv(outfile, sep="\t", header=True, index=True, compression='gzip')
+
+
+@follows(hisat2_map)
+@merge(hisat2_map, "hisat2_multiqc.html")
+def mapping_multiqc(infiles, outfile):
     statement = '''export LC_ALL=en_US.UTF-8 &&
                    export LANG=en_US.UTF-8 &&
-                   multiqc -f -n kallisto_multiqc.html -o quant quant'''
+                   multiqc -f -n hisat2_multiqc.html -o .'''
     P.run(statement)
 
-@follows(fastqc, multiqc, kallisto_index, kal_quant, kallisto_multiqc)
+
+@follows(fastqc, merge_features, mapping_multiqc)
 def full():
     pass
 

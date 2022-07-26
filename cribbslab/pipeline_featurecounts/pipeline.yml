@@ -2,17 +2,31 @@
 #environment: pbulk_env
 #queue: all.q
 
+# name of the genome (minus .fasta)
+genome: hg38
 
-# Download reference fasta data e.g.# Human: wget ftp://ftp.ensembl.org/pub/release-99/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
-# Mouse: wget ftp://ftp.ensembl.org/pub/release-99/fasta/mus_musculus/cdna/Mus_musculus.GRCm38.cdna.all.fa.gz
-cdna_fasta: Mus_musculus.GRCm38.cdna.all.fa.gz
+# location of indexed genome, needs to be set
+genome_dir: /t1-data/project/cribbslab/shared/resources/index/
 
-# Specify if there is only single-end 
-kallisto_single: 0
+hisat2:
 
+    # specify if running in paired end mode
+    paired: 1
 
-kal_quant:
-    options: --rf-stranded  #Strand specific reads, first read forward
-    threads: 8
-    bootstraps: 100        #Number of time the alignment is re-run, used to model technical variance in the dataset
-    pseudobam: False # specify if pseudobulk present
+    # default values
+    options: '--rna-strandness FR'
+
+    #threads to use
+    threads: 12
+
+    # memory required for hisat jobs - note that this is multiplied by the
+    # number of threads. Thus, 4 threads * 2G = 8G
+    memory: 3.9G
+
+    # directory containing hisat indexes for genomes
+    index_dir: ''
+
+featurecounts:
+
+    # location of gtf file
+    gtf: refcoding.gtf.gz
