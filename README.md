@@ -1,6 +1,6 @@
 # Botnar Computational Group
 
-This is a collection of pipelines and R scripts used for the cribbs group
+This is a collection of ruffus pipelines and R scripts used for the cribbs group
 at the botnar research centre Oxford.
 
 ## Installation
