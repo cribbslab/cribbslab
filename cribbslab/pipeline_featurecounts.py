@@ -31,8 +31,10 @@ Code
 # import packages necessary to run the script
 import sys
 import os
+import re
 from ruffus import *
 import cgatcore.pipeline as P
+import pandas as pd
 
 # load options from the config file
 PARAMS = P.get_parameters(
@@ -59,7 +61,7 @@ SEQUENCEFILES_REGEX = regex(
 @follows(mkdir("fastqc"))                       # make a directory called fastqc, and only proceed once this directory is made
 @transform(SEQUENCEFILES,                      # (*) - match any character any number of times [global expression, glob]
             SEQUENCEFILES_REGEX,       # (.*) - match any character (.) any number of times (*) [regular expression, regex]
-            r"fastqc/fastqc.html")  # r - raw string to python: fastqc/ - create the following file names in fastqc dir. \1 matches the first (.*) in regex
+            r"fastqc/\1_fastqc.html")  # r - raw string to python: fastqc/ - create the following file names in fastqc dir. \1 matches the first (.*) in regex
 def fastqc(infile, outfile):
     ''' run fastqc on all fastq.gz files
     input:
@@ -69,28 +71,17 @@ def fastqc(infile, outfile):
     example_statment:
         fastqc --nogroup -o fastqc sampleA.fastq.1.gz > fastqc/sampleA.fastq.1.gz.log
      '''
-    statement = "fastqc --nogroup -o fastqc %(infile)s > %(outfile)s.log"
+    if PARAMS['hisat2_paired']:
+
+        read1 = infile
+        read2 = infile.replace('.1.gz','.2.gz')
+
+        statement = '''fastqc --nogroup -o fastqc %(read1)s > %(outfile)s.log && 
+                     fastqc --nogroup -o fastqc %(read2)s >> %(outfile)s.log'''
+    else:
+        statement = '''fastqc --nogroup -o fastqc %(infile)s > %(outfile)s.log'''
+
     P.run(statement)
-
-
-@follows(fastqc, mkdir("reports"))               # make a directory called reports, and only proceed once this directory is made
-@merge(fastqc, "reports/multiqc_report.html")    # take the output of the fastqc task as input and merge it into a single output named multiqc_report.html in reports dir
-def multiqc(infiles, outfile):
-    ''' run multiqc to collect fastq stats
-    input:
-        string of all files output from fastqc
-    output:
-        string of multiqc file html report
-        reports/fastqc_report.html
-    example statement:
-        export LC_ALL=en_US.UTF-8 && export LANG=en_US.UTF-8 &&
-        multiqc fastqc/ -f -n reports/fastqc_report.html
-    '''
-    # Export statements come from error of mutliqc on server and this makes it run
-    statement = """export LC_ALL=en_US.UTF-8 &&
-                   export LANG=en_US.UTF-8 &&
-                   multiqc fastqc/ -f -d -s -n %(outfile)s""" # -n - specifies the name of the output file, -f - forces to overwrite the report (if it was run before) so the multiqc outfile is always updated
-    P.run(statement, job_memory="30G")
 
 
 @follows (mkdir ("hisat_mapping"))
@@ -118,10 +109,11 @@ def hisat2_map(infile, outfile):
         infile2 = infile.replace('.1.gz','.2.gz')
 
         statement = '''hisat2 %%(hisat2_options)s -x %(index_prefix)s --threads %%(job_threads)i -1 %(infile)s
-                       -2 %(infile2)s  2> %(outfile)s.log | samtools view -bS > %(outfile)s  2>> %(outfile)s.log''' % locals()
+                       -2 %(infile2)s  2> %(outfile)s.log | samtools view -bS > %(outfile)s.tmp  2>> %(outfile)s.log &&
+                       samtools sort -o %(outfile)s %(outfile)s.tmp && rm -rf  %(outfile)s.tmp''' % locals()
     else:
 
-        statement = '''hisat2 %%(hisat2_options)s -x %(index_prefix)s --threads %%(job_threads)i -U %(infile)s 2> %(outfile)s.log | samtools view -bS > %(outfile)s  2>> %(outfile)s.log''' % locals()
+        statement = '''hisat2 %%(hisat2_options)s -x %(index_prefix)s --threads %%(job_threads)i -U %(infile)s 2> %(outfile)s.log | samtools view -bS > %(outfile)s.tmp  2>> %(outfile)s.log && samtools sort -o %(outfile)s %(outfile)s.tmp && rm -rf  %(outfile)s.tmp''' % locals()
 
     P.run(statement)
 
@@ -142,8 +134,8 @@ def count_features(infile, outfile):
     intermediate = name.replace(".bam",".tsv.tmp")
 
     statement = """
-                featureCounts -t exon -g gene_id -a %(gtf)s -o featurecounts.dir/%(intermediate)s %(infile)s &&
-                cut -f 1,7 featurecounts.dir/%(intermediate)s > %(outfile)s
+                featureCounts -t exon -g gene_id -a %(gtf)s -o featurecounts/%(intermediate)s %(infile)s &&
+                cut -f 1,7 featurecounts/%(intermediate)s > %(outfile)s
                """
 
     P.run(statement)
@@ -173,16 +165,16 @@ def merge_features(infiles, outfile):
     features.to_csv(outfile, sep="\t", header=True, index=True, compression='gzip')
 
 
-@follows(hisat2_map)
-@merge(hisat2_map, "hisat2_multiqc.html")
-def mapping_multiqc(infiles, outfile):
+@follows(hisat2_map, fastqc)
+@merge(hisat2_map, "multiqc.html")
+def multiqc(infiles, outfile):
     statement = '''export LC_ALL=en_US.UTF-8 &&
                    export LANG=en_US.UTF-8 &&
-                   multiqc -f -n hisat2_multiqc.html -o .'''
+                   multiqc -f -n multiqc.html -o multiqc .'''
     P.run(statement)
 
 
-@follows(fastqc, merge_features, mapping_multiqc)
+@follows(merge_features, multiqc)
 def full():
     pass
 
