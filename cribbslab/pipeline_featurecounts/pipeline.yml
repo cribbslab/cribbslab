@@ -1,0 +1,32 @@
+# Not needed if you set your .cgat.yml
+#environment: pbulk_env
+#queue: all.q
+
+# name of the genome (minus .fasta)
+genome: hg38
+
+# location of indexed genome, needs to be set
+genome_dir: /t1-data/project/cribbslab/shared/resources/index/
+
+hisat2:
+
+    # specify if running in paired end mode
+    paired: 1
+
+    # default values
+    options: '--rna-strandness FR'
+
+    #threads to use
+    threads: 12
+
+    # memory required for hisat jobs - note that this is multiplied by the
+    # number of threads. Thus, 4 threads * 2G = 8G
+    memory: 3.9G
+
+    # directory containing hisat indexes for genomes
+    index_dir: ''
+
+featurecounts:
+
+    # location of gtf file
+    gtf: refcoding.gtf.gz
