@@ -4,9 +4,6 @@ author: Adam Cribbs
 ===========================
 To run locally: python pipeline_atac.py make full --local
 
-To run macs3 functions, you will need to create a seperate conda env called macs3 because
-there are incompatibilities with cgatcore and other software installation options.
-
 Overview:
     - This pipeline uses Bowtie2 to align reads
       for bulkATACseq data analysis
@@ -125,7 +122,7 @@ def bowtie2_map (infiles, outfile):
         name = index_file.replace(".1.bt2", "")
         bamname = outfile.replace(".bam", "")
 
-        statement = '''bowtie2 --very-sensitive -k 3 -x %(name)s -1 %(infile1)s -2 %(infile2)s > %(bamname)s.bowtie.sam 2> %(bamname)s.log &&
+        statement = '''bowtie2 %(bowtie2_options)s -x %(name)s -1 %(infile1)s -2 %(infile2)s > %(bamname)s.bowtie.sam 2> %(bamname)s.log &&
                        samtools view -S -b %(bamname)s.bowtie.sam > %(bamname)s.bowtie.bam &&
                        samtools sort %(bamname)s.bowtie.bam -o %(outfile)s &&
                        samtools index %(outfile)s &&
@@ -219,7 +216,7 @@ def peakcall_macs3(infile, outfile):
 
     statement = '''macs3 callpeak -f BAMPE -t %(infile)s -g hs -n %(name)s -B -q 0.01 '''
 
-    P.run(statement, job_condaenv="macs3", job_memory="50G")
+    P.run(statement, job_memory="50G")
 
 
 

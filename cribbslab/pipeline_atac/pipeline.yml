@@ -11,6 +11,8 @@ bowtie2_threads: 5
 
 bowtie2_memory: 40G
 
+bowtie2_options: --fast -k3
+
 genome_fasta: /t1-data/project/cribbslab/shared/resources/index/hg38.fa 
 
 merge_pattern_input: '(\S+)_L\d+'
