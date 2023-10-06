@@ -24,6 +24,7 @@ dependencies:
 - setuptools
 - six
 - sqlalchemy
+- kallisto=0.48.0
 # Misc dependencies
 - coreutils
 - nomkl
