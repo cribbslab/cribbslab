@@ -39,3 +39,4 @@ dependencies:
 - samtools
 - multiqc
 - fastqc
+- bowtie2
