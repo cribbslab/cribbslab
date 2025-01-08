@@ -69,9 +69,26 @@ def runLongQC(infile, outfile):
     
     P.run(statement)
 
+@follows(mkdir("fastqc"))
+@transform("*.fastq.gz",
+           regex(r"(\S+).fastq.gz"),
+           r"fastqc/\1_fastqc.html")
+def runFastQC(infile, outfile):
+    """Run FastQC on input fastq files."""
+    outdir = os.path.dirname(outfile)
+    
+    statement = """fastqc 
+                  --outdir %(outdir)s 
+                  --threads %(fastqc_threads)s 
+                  %(fastqc_options)s 
+                  %(infile)s"""
+    
+    P.run(statement)
+
 @follows(mkdir("multiqc"))
 @merge([r"nanoplot/*/NanoPlot-report.html",
-        r"longqc/*/*_longqc_report.html"],
+        r"longqc/*/*_longqc_report.html",
+        r"fastqc/*.html"],
        "multiqc/multiqc_report.html")
 def runMultiQC(infiles, outfile):
     """Run MultiQC to collect all QC metrics."""
@@ -81,11 +98,12 @@ def runMultiQC(infiles, outfile):
                   --force 
                   --outdir %(outdir)s 
                   nanoplot/ 
-                  longqc/"""
+                  longqc/ 
+                  fastqc/"""
     
     P.run(statement)
 
-@follows(runNanoPlot, runLongQC, runMultiQC)
+@follows(runNanoPlot, runLongQC, runFastQC, runMultiQC)
 def full():
     """Run the full pipeline."""
     pass
