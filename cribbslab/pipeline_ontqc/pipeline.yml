@@ -29,3 +29,13 @@ longqc:
     
     # Additional options
     options: --fast
+
+# MultiQC parameters
+multiqc:
+    # Additional options for MultiQC
+    options: --interactive --verbose
+
+    # Module-specific settings
+    module_order:
+        - nanoplot
+        - longqc
