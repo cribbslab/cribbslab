@@ -1,0 +1,36 @@
+# Pipeline configuration file for pipeline_ontqc.py
+
+# General pipeline options
+pipeline_name: pipeline_ontqc
+
+# NanoPlot parameters
+nanoplot:
+    # Number of threads to use
+    threads: 4
+    
+    # Read length filtering
+    maxlength: 100000
+    minlength: 1000
+    
+    # Additional options (can be overridden in command line)
+    options: --plots kde hex dot --N50 --raw --store
+
+# FastQC parameters
+fastqc:
+    # Number of threads to use
+    threads: 4
+    
+    # Memory allocation for Java heap space (in GB)
+    memory: 4
+    
+    # Additional options
+    options: --noextract --nogroup
+
+# MultiQC parameters
+multiqc:
+    # Additional options for MultiQC
+    options: --interactive --verbose
+
+    # Module-specific settings
+    module_order:
+        - nanoplot
