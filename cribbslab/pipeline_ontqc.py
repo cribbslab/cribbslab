@@ -67,6 +67,7 @@ def runFastQC(infile, outfile):
     P.run(statement)
 
 @follows(mkdir("multiqc"))
+@follows(runNanoPlot, runFastQC)
 @merge([r"nanoplot/*/NanoPlot-report.html",
         r"fastqc/*.html"],
        "multiqc/multiqc_report.html")
@@ -82,7 +83,7 @@ def runMultiQC(infiles, outfile):
     
     P.run(statement)
 
-@follows(runNanoPlot, runFastQC, runMultiQC)
+@follows(runMultiQC)
 def full():
     """Run the full pipeline."""
     pass
