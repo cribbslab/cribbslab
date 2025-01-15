@@ -64,7 +64,7 @@ def runFastQC(infile, outfile):
                   %(fastqc_options)s 
                   %(infile)s"""
     
-    P.run(statement)
+    P.run(statement, job_memory=PARAMS["fastqc"]["memory"] + "G", job_options='--time=0-02:00:00')
 
 @follows(mkdir("multiqc"))
 @follows(runNanoPlot, runFastQC)
