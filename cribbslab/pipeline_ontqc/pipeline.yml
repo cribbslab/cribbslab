@@ -20,6 +20,9 @@ fastqc:
     # Number of threads to use
     threads: 4
     
+    # Memory allocation for Java heap space (in GB)
+    memory: 4
+    
     # Additional options
     options: --noextract --nogroup
 
