@@ -58,7 +58,7 @@ def runFastQC(infile, outfile):
     """Run FastQC on input fastq files."""
     outdir = os.path.dirname(outfile)
     
-    statement = """fastqc 
+    statement = """export _JAVA_OPTIONS="-Xmx4g" && fastqc 
                   --outdir %(outdir)s 
                   --threads %(fastqc_threads)s 
                   %(fastqc_options)s 
