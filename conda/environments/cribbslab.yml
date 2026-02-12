@@ -10,7 +10,7 @@ dependencies:
 - cgatcore
 - nose
 - pycodestyle
-- python=3.12
+- python
 - gevent
 - numpy
 - pandas
