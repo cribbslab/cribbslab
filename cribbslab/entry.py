@@ -26,7 +26,7 @@ import os
 import sys
 import re
 import glob
-import imp
+import importlib.util
 import cribbslab
 
 
@@ -86,12 +86,25 @@ def main(argv=None):
     command = re.sub("-", "_", command)
     pipeline = "pipeline_{}".format(command)
 
-    # remove 'scflow' from sys.argv
+    # remove 'cribbslab' from sys.argv
     del sys.argv[0]
 
-    (file, pathname, description) = imp.find_module(pipeline, paths)
+    # Find the pipeline module in the paths
+    module_file = None
+    for search_path in paths:
+        candidate = os.path.join(search_path, pipeline + ".py")
+        if os.path.exists(candidate):
+            module_file = candidate
+            break
 
-    module = imp.load_module(pipeline, file, pathname, description)
+    if module_file is None:
+        raise ImportError(f"Cannot find pipeline: {pipeline}")
+
+    # Load the module using importlib
+    spec = importlib.util.spec_from_file_location(pipeline, module_file)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[pipeline] = module
+    spec.loader.exec_module(module)
 
     module.main(sys.argv)
 
