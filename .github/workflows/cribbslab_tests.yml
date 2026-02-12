@@ -11,7 +11,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ["ubuntu-latest", "macos-latest"]
-        python-version: ["3.7", "3.8"]
+        python-version: ["3.10", "3.11"]
 
     defaults:
       run:
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Cache conda
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         env:
           # Increase this value to reset cache if conda/environments/cgat-core.yml has not changed
           CACHE_NUMBER: 0
@@ -29,7 +29,7 @@ jobs:
           key:
             ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
             hashFiles('conda/environments/cgat-core.yml') }}
-      - uses: conda-incubator/setup-miniconda@v2
+      - uses: conda-incubator/setup-miniconda@v3
         with:
           mamba-version: "*"
           python-version: ${{ matrix.python-version }}
