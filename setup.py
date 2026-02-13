@@ -67,10 +67,21 @@ setup(
     packages=cribbslab_packages,
     package_dir=cribbslab_package_dirs,
     include_package_data=True,
+    package_data={
+        'cribbslab': [
+            'pipeline_*/pipeline.yml',
+            'pipeline_*/*.tsv',
+            'pipeline_*/*.csv',
+            'R/*.R',
+            'R/*.Rmd',
+            'perl/*.pl',
+            'python/*.py',
+            'pipeline_docs/**/*',
+        ],
+    },
     entry_points={
         "console_scripts": ["cribbslab = cribbslab.entry:main"]
     },
     # other options
     zip_safe=False,
-    test_suite="tests",
 )

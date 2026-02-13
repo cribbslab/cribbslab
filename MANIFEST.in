@@ -1,0 +1,26 @@
+# Include all pipeline configuration files
+recursive-include cribbslab *.yml
+
+# Include R scripts
+recursive-include cribbslab *.R
+recursive-include cribbslab *.Rmd
+
+# Include Perl scripts
+recursive-include cribbslab *.pl
+
+# Include Python helper scripts
+recursive-include cribbslab/python *.py
+
+# Include example data files
+recursive-include cribbslab *.tsv
+recursive-include cribbslab *.csv
+
+# Include documentation files
+recursive-include cribbslab *.rst
+recursive-include cribbslab *.html
+recursive-include cribbslab *.conf
+
+# Include theme files
+recursive-include cribbslab *.css*
+recursive-include cribbslab *.js
+recursive-include cribbslab *.png
