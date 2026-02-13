@@ -45,7 +45,7 @@ jobs:
         run: |
           python setup.py install
           pycodestyle --ignore=E501 tests
-          python tests/template_pipeline.py make all
+          python tests/template_pipeline.py --local make all
           nosetests -v tests/test_import.py
           nosetests -v tests/test_style.py
           nosetests -v tests/test_pipeline_control.py

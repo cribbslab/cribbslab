@@ -61,7 +61,7 @@ class TestexecutionControl(BaseTest):
     def test_basic_configuration_produces_expected_files(self):
 
         retval, stdout, stderr = self.run_command(
-            "python {}/template_pipeline.py make all".format(ROOT))
+            "python {}/template_pipeline.py --local make all".format(ROOT))
 
         self.check_files(
             present=self.expected_output_files + ["pipeline.log"],
@@ -70,7 +70,7 @@ class TestexecutionControl(BaseTest):
     def test_shell_log_is_created_in_workdir(self):
 
         retval, stdout, stderr = self.run_command(
-            "python {}/template_pipeline.py make all --shell-logfile=shell.log".format(ROOT))
+            "python {}/template_pipeline.py --local make all --shell-logfile=shell.log".format(ROOT))
 
         self.check_files(
             present=self.expected_output_files + ["pipeline.log", "shell.log"])
@@ -80,7 +80,7 @@ class TestexecutionControl(BaseTest):
         shell_file = os.path.join(self.work_dir, "test_shell", "shell.log")
 
         retval, stdout, stderr = self.run_command(
-            "python {}/template_pipeline.py make all --shell-logfile={}".format(ROOT, shell_file))
+            "python {}/template_pipeline.py --local make all --shell-logfile={}".format(ROOT, shell_file))
 
         self.check_files(
             present=self.expected_output_files,
@@ -128,7 +128,7 @@ loggers:
 """)
 
         retval, stdout, stderr = self.run_command(
-            "python {}/template_pipeline.py make all --log-config-filename={}".format(ROOT, log_config))
+            "python {}/template_pipeline.py --local make all --log-config-filename={}".format(ROOT, log_config))
 
         self.check_files(
             present=self.expected_output_files + ["extra.log"],

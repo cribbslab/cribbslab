@@ -1,0 +1,19 @@
+# Template pipeline configuration for testing
+# Forces local execution (no cluster)
+
+# Test mode settings
+testing: True
+
+# Cluster settings - disabled for CI testing
+cluster:
+    queue: none
+    queue_manager: local
+
+# Force local execution
+without_cluster: True
+
+# Sample parameters for the test pipeline
+min_value: 0.0
+num_samples: 1000
+mu: 0.0
+sigma: 1.0
