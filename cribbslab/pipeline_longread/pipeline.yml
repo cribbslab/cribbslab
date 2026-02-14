@@ -1,0 +1,133 @@
+################################################################
+#
+# Pipeline pipeline_longread configuration file
+#
+# This pipeline processes bulk long-read RNA-seq data (ONT)
+# including alignment, transcript discovery with bambu, and QC.
+#
+################################################################
+
+# -----------------------------------------------
+# General settings
+# -----------------------------------------------
+
+# Project name
+projectname: longread_rnaseq
+
+# -----------------------------------------------
+# Reference genome and annotation files
+# -----------------------------------------------
+
+# Path to reference genome fasta file
+genome_fasta: /path/to/GRCh38.p14.genome.fa
+
+# -----------------------------------------------
+# Pychopper settings (cDNA preprocessing)
+# -----------------------------------------------
+
+pychopper:
+    # Set to 1 to run pychopper preprocessing (recommended for cDNA, not for direct RNA)
+    run: 0
+
+    # Library prep kit version (e.g., PCS109, PCS110, PCS111, PCS114)
+    kit: PCS111
+
+    # Rescue length for trimming
+    rescue_length: 200
+
+    # Number of threads
+    threads: 8
+
+    # Memory per job
+    memory: 4G
+
+    # Additional options (e.g., -Q for quality filtering)
+    options: ''
+
+# -----------------------------------------------
+# Subsampling settings
+# -----------------------------------------------
+
+subsample:
+    # Set to 1 to subsample reads to target depth
+    run: 0
+
+    # Target number of reads
+    target: 4000000
+
+    # Random seed for reproducibility
+    seed: 200
+
+# -----------------------------------------------
+# Minimap2 alignment settings
+# -----------------------------------------------
+
+minimap2:
+    # Alignment options
+    # -ax splice: spliced alignment for RNA-seq
+    # -uf: consider forward strand transcripts only (for stranded libraries)
+    # -p 0.9: min secondary-to-primary score ratio
+    options: '-ax splice -uf -p 0.9'
+
+    # Number of threads
+    threads: 16
+
+    # Memory per job
+    memory: 8G
+
+# -----------------------------------------------
+# Bambu settings (transcript discovery and quantification)
+# -----------------------------------------------
+
+bambu:
+    # Path to annotation GTF file
+    gtf: /path/to/gencode.v46.annotation.gtf.gz
+
+    # Path to reference genome fasta (same as genome_fasta)
+    fasta: /path/to/GRCh38.p14.genome.fa
+
+    # Output file prefix
+    prefix: sample
+
+    # Number of cores for parallel processing
+    threads: 8
+
+    # Memory per job (bambu can be memory intensive)
+    memory: 64G
+
+# -----------------------------------------------
+# QC settings
+# -----------------------------------------------
+
+nanoplot:
+    # Number of threads
+    threads: 4
+
+    # Memory per job
+    memory: 8G
+
+# RSeQC settings
+rseqc:
+    # BED12 annotation file for read_distribution
+    # Generate from GTF using gtfToGenePred and genePredToBed
+    bed: /path/to/hg38_gencodev46.bed
+
+# Gene body coverage settings
+genebody:
+    # BED12 file with CDS regions (preferably transcripts >1000bp)
+    bed: /path/to/gencodev46_cds_1000.bed
+
+# Bedtools coverage settings
+bedtools:
+    # BED annotation file for coverage calculation
+    bed: /path/to/hg38_gencodev46.bed
+
+# -----------------------------------------------
+# Cluster settings (for HPC environments)
+# -----------------------------------------------
+
+# Uncomment and modify for your cluster environment
+# cluster:
+#     queue: all.q
+#     memory_resource: h_vmem
+#     parallel_environment: smp
