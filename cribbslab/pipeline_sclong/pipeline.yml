@@ -1,0 +1,186 @@
+################################################################
+#
+# Pipeline pipeline_sclong configuration file
+#
+# 10x Genomics Single-cell long-read RNA-seq pipeline for nuclei sequencing
+# Supports both 5' and 3' chemistries
+# Handles both spliced and unspliced reads at gene and transcript levels
+#
+# Output count matrices include BOTH spliced and unspliced reads to capture
+# the full transcriptome from nuclei.
+#
+################################################################
+
+# -----------------------------------------------
+# General settings
+# -----------------------------------------------
+
+projectname: sclong_rnaseq
+
+# -----------------------------------------------
+# Reference genome and annotation files
+# -----------------------------------------------
+
+# Path to reference genome fasta file
+genome_fasta: /path/to/GRCh38.p14.genome.fa
+
+# -----------------------------------------------
+# 10x Kit Configuration
+# -----------------------------------------------
+
+# IMPORTANT: Set the correct kit type for your experiment
+# Options:
+#   3v3  - 10x Chromium 3' v3 chemistry (most common)
+#   3v2  - 10x Chromium 3' v2 chemistry
+#   5v2  - 10x Chromium 5' v2 chemistry
+#   5v3  - 10x Chromium 5' v3 chemistry
+#
+# The kit type affects barcode/UMI position:
+#   3' kits: barcode + UMI at 3' end (near poly-A)
+#   5' kits: barcode + UMI at 5' end of read
+
+tenx_kit: 3v3
+
+# -----------------------------------------------
+# BLAZE settings (cell barcode assignment)
+# -----------------------------------------------
+
+blaze:
+    # 10x kit type (overrides tenx_kit if set)
+    # Options: 3v3, 3v2, 5v2, 5v3
+    kit: 3v3
+
+    # Path to 10x barcode whitelist
+    # For 10x v3 (3' and 5'): 3M-february-2018.txt
+    # For 10x v2: 737K-august-2016.txt
+    # Download from: https://github.com/10XGenomics/cellranger/tree/master/lib/python/cellranger/barcodes
+    whitelist: /path/to/3M-february-2018.txt
+
+    # Expected number of cells (helps with barcode filtering)
+    expect_cells: 5000
+
+    # Number of threads
+    threads: 8
+
+    # Memory per job
+    memory: 16G
+
+    # Additional options
+    # --minQ: minimum base quality for barcode (default: 15)
+    # --max-edit-distance: max edit distance for barcode matching
+    options: ''
+
+# -----------------------------------------------
+# Minimap2 alignment settings
+# -----------------------------------------------
+
+minimap2:
+    # Alignment options for single-cell long reads
+    # -ax splice: spliced alignment for RNA-seq (maps to genome, captures both
+    #   spliced and unspliced reads - unspliced align contiguously through introns)
+    # -uf: consider forward strand transcripts only
+    # -k14: k-mer size (14 works well for noisy long reads)
+    options: '-ax splice -uf -k14'
+
+    # GTF annotation used to generate a splice junction BED file (--junc-bed).
+    # This improves splice site detection accuracy.
+    # Falls back to featurecounts_gtf if not set.
+    gtf: /path/to/gencode.v46.annotation.gtf.gz
+
+    # Number of threads
+    threads: 16
+
+    # Memory per job
+    memory: 8G
+
+# -----------------------------------------------
+# FLAMES settings (transcript discovery and quantification)
+# -----------------------------------------------
+
+flames:
+    # Path to annotation GTF file
+    gtf: /path/to/gencode.v46.annotation.gtf.gz
+
+    # Path to reference genome fasta (same as genome_fasta)
+    fasta: /path/to/GRCh38.p14.genome.fa
+
+    # Number of threads for parallel processing
+    threads: 8
+
+    # Memory per job (FLAMES can be memory intensive)
+    memory: 64G
+
+    # Minimum number of reads to support a transcript
+    min_support_reads: 3
+
+    # Whether to perform transcript discovery
+    do_discovery: TRUE
+
+    # Minimum number of cells expressing a transcript
+    min_cells: 3
+
+# -----------------------------------------------
+# featureCounts settings (gene-level quantification)
+# -----------------------------------------------
+
+featurecounts:
+    # Path to annotation GTF file
+    gtf: /path/to/gencode.v46.annotation.gtf.gz
+
+    # Number of threads
+    threads: 4
+
+# -----------------------------------------------
+# Combined counts settings (spliced + unspliced)
+# -----------------------------------------------
+
+# These settings control the combined count matrix generation
+# which includes BOTH spliced and unspliced reads per gene/transcript.
+# This is essential for nuclei sequencing where unspliced pre-mRNA is abundant.
+
+combined:
+    # Memory for combined counting
+    memory: 32G
+
+# -----------------------------------------------
+# RNA velocity settings (separate spliced/unspliced)
+# -----------------------------------------------
+
+# These settings generate SEPARATE spliced and unspliced matrices
+# for use with scVelo or velocyto trajectory analysis.
+
+velocity:
+    # GTF file (should include intron annotations for velocity)
+    gtf: /path/to/gencode.v46.annotation.gtf.gz
+
+    # Memory for velocity counting
+    memory: 32G
+
+# -----------------------------------------------
+# QC settings
+# -----------------------------------------------
+
+nanoplot:
+    # Number of threads
+    threads: 4
+
+    # Memory per job
+    memory: 8G
+
+# -----------------------------------------------
+# BAM tagging settings
+# -----------------------------------------------
+
+tag:
+    # Memory for BAM tagging
+    memory: 16G
+
+# -----------------------------------------------
+# Cluster settings (for HPC environments)
+# -----------------------------------------------
+
+# Uncomment and modify for your cluster environment
+# cluster:
+#     queue: all.q
+#     memory_resource: h_vmem
+#     parallel_environment: smp
