@@ -1,0 +1,46 @@
+name: sclong
+
+# Environment for pipeline_sclong: 10x Genomics single-cell long-read
+# (ONT) RNA-seq analysis (BLAZE -> minimap2 -> FLAMES + featureCounts).
+#
+# Platform note: several Bioconductor packages used here (e.g.
+# bioconductor-flames, bioconductor-singlecellexperiment) are only built for
+# linux-64 and osx-64 - there is no osx-arm64 build. On Apple Silicon, create
+# this environment under Rosetta emulation, e.g.:
+#     CONDA_SUBDIR=osx-64 mamba env create -f conda/environments/sclong.yml
+#     conda activate sclong && conda config --env --set subdir osx-64
+
+channels:
+- conda-forge
+- bioconda
+- defaults
+
+dependencies:
+# pipeline framework
+- python>=3.9
+- cgatcore
+- ruffus
+- pyyaml>=5.1
+- pandas
+- numpy
+- drmaa
+# command-line tools
+- minimap2          # splice-aware alignment (also provides paftools.js)
+- k8                # JavaScript engine required by paftools.js
+- samtools
+- blaze2            # BLAZE cell-barcode/UMI identification (executable: blaze)
+- nanoplot          # long-read QC
+- subread           # featureCounts (gene-level quantification)
+- multiqc
+# R + R packages (FLAMES, barcode tagging, combined/velocity counting)
+- r-base
+- r-optparse
+- r-data.table
+- r-matrix
+- r-jsonlite
+- bioconductor-flames
+- bioconductor-singlecellexperiment
+- bioconductor-rsamtools
+- bioconductor-genomicalignments
+- bioconductor-genomicfeatures
+- bioconductor-txdbmaker   # makeTxDbFromGFF (Bioconductor >= 3.19)
