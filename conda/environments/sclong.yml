@@ -38,7 +38,10 @@ dependencies:
 - r-data.table
 - r-matrix
 - r-jsonlite
-- bioconductor-flames
+# FLAMES is pinned: cribbslab/R/flames_sc.R targets the FLAMES 2.4.x API
+# (create_config(); sc_long_pipeline() running from FASTQ). Pinning 2.4.2 also
+# constrains r-base (>=4.5,<4.6) and the rest of the Bioconductor 3.22 stack.
+- bioconductor-flames=2.4.2
 - bioconductor-singlecellexperiment
 - bioconductor-rsamtools
 - bioconductor-genomicalignments
