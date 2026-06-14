@@ -15,7 +15,6 @@
 
 suppressPackageStartupMessages({
     library(optparse)
-    library(Rsamtools)
     library(data.table)
 })
 
@@ -97,75 +96,21 @@ umi_lookup <- if (umi_col %in% colnames(bc_data)) {
 # Process BAM file
 cat("Processing BAM file...\n")
 
-# Open input BAM
-bam_in <- BamFile(opt$bam)
-
 # Create output directory if needed
 outdir <- dirname(opt$output)
 if (!dir.exists(outdir)) {
     dir.create(outdir, recursive = TRUE)
 }
 
-# Read BAM in chunks and add tags
-param <- ScanBamParam(what = c("qname", "flag", "rname", "strand", "pos", 
-                                "qwidth", "mapq", "cigar", "seq", "qual"),
-                      tag = c())
+# Lightweight stats (avoid loading the whole BAM into memory).
+n_aln <- as.integer(system(paste("samtools view -c", shQuote(opt$bam)),
+                           intern = TRUE))
+cat(paste0("Total alignments: ", n_aln, "\n"))
+cat(paste0("Reads with an assignable barcode: ", length(bc_lookup), "\n\n"))
 
-# Read all alignments
-cat("Reading alignments...\n")
-aln <- scanBam(bam_in, param = param)[[1]]
-
-n_reads <- length(aln$qname)
-cat(paste0("Total alignments: ", n_reads, "\n"))
-
-# Match barcodes to reads
-cat("Matching barcodes to reads...\n")
-matched_bc <- bc_lookup[aln$qname]
-matched_umi <- if (!is.null(umi_lookup)) umi_lookup[aln$qname] else rep(NA, n_reads)
-
-n_matched <- sum(!is.na(matched_bc))
-cat(paste0("Alignments with barcode: ", n_matched, " (", 
-           round(100 * n_matched / n_reads, 2), "%)\n\n"))
-
-# Write tagged BAM using system samtools (more efficient for large files)
 cat("Writing tagged BAM file...\n")
 
-# Create temporary SAM with tags
-temp_sam <- tempfile(fileext = ".sam")
-
-# Get header from original BAM
-header_cmd <- paste("samtools view -H", shQuote(opt$bam))
-header <- system(header_cmd, intern = TRUE)
-
-# Write header
-writeLines(header, temp_sam)
-
-# Read original BAM and add tags
-# This is more efficient than pure R for large files
-add_tags_cmd <- paste0(
-    "samtools view ", shQuote(opt$bam), " | ",
-    "awk -F'\\t' 'BEGIN{OFS=\"\\t\"} ",
-    "{",
-    "  if (NR==FNR) { bc[$1]=$2; umi[$1]=$3; next }",
-    "  if ($1 in bc) { print $0, \"CB:Z:\"bc[$1], \"UB:Z:\"umi[$1] }",
-    "  else { print $0 }",
-    "}' ", shQuote(opt$barcodes), " - ",
-    ">> ", shQuote(temp_sam)
-)
-
-# Alternative: Use R to write SAM (slower but more portable)
-# For now, let's use a simpler approach with pysam or just output statistics
-
-# Create a simple tagged BAM using R
-# This is a fallback method - for production, consider using pysam or samtools
-
-# For simplicity, we'll use samtools to copy and then use R to add tags
-# In production, this should be replaced with a more efficient method
-
-cat("Note: For large BAM files, consider using pysam for better performance.\n")
-cat("Creating tagged BAM using samtools addreplacerg + custom tagging...\n")
-
-# Simple approach: create a barcode tag file and use samtools
+# Create a barcode tag file (read_id, CB, UB) and stream-tag with awk + samtools.
 bc_tag_file <- tempfile(fileext = ".tsv")
 ub_values <- if (!is.null(umi_lookup)) umi_lookup[names(bc_lookup)] else ""
 ub_values[is.na(ub_values)] <- ""
