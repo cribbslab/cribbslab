@@ -118,14 +118,19 @@ bam_data <- scanBam(opt$bam, param = param)[[1]]
 n_reads <- length(bam_data$qname)
 cat(paste0("Total alignments: ", n_reads, "\n"))
 
-# Filter for reads with cell barcodes
-has_bc <- !is.na(bam_data$tag$CB)
+# Keep reads that have a cell barcode AND are mapped. Unmapped reads have NA
+# rname/pos (the tagging step adds CB/UB to all reads, including unmapped),
+# which would otherwise break GAlignments() with "seqnames cannot contain NAs".
+has_bc <- !is.na(bam_data$tag$CB) &
+    !is.na(bam_data$rname) &
+    !is.na(bam_data$pos)
 n_with_bc <- sum(has_bc)
-cat(paste0("Alignments with cell barcode: ", n_with_bc, " (",
+cat(paste0("Mapped alignments with cell barcode: ", n_with_bc, " (",
            round(100 * n_with_bc / n_reads, 2), "%)\n\n"))
 
 if (n_with_bc == 0) {
-    stop("Error: No reads with cell barcodes found. Check BAM tagging step.")
+    stop("Error: No mapped reads with cell barcodes found. ",
+         "Check the alignment and BAM tagging steps.")
 }
 
 # Extract data for reads with barcodes
