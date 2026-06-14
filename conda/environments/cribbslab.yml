@@ -40,3 +40,24 @@ dependencies:
 - multiqc
 - fastqc
 - bowtie2
+# ------------------------------------------------------------------
+# pipeline_sclong: single-cell long-read (ONT 10x) dependencies
+# ------------------------------------------------------------------
+# command-line tools
+- minimap2          # splice-aware alignment (also provides paftools.js)
+- k8                # JavaScript engine required by paftools.js
+- blaze2            # BLAZE cell-barcode/UMI identification (executable: blaze)
+- nanoplot          # long-read QC
+- subread           # featureCounts (gene-level quantification)
+# R + R packages (FLAMES, barcode tagging, combined/velocity counting)
+- r-base
+- r-optparse
+- r-data.table
+- r-matrix
+- r-jsonlite
+- bioconductor-flames
+- bioconductor-singlecellexperiment
+- bioconductor-rsamtools
+- bioconductor-genomicalignments
+- bioconductor-genomicfeatures
+- bioconductor-txdbmaker   # makeTxDbFromGFF (Bioconductor >= 3.19)
