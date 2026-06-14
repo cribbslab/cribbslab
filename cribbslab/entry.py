@@ -26,6 +26,7 @@ import os
 import sys
 import re
 import glob
+import shutil
 import importlib.util
 import cribbslab
 
@@ -65,7 +66,6 @@ def main(argv=None):
     argv = sys.argv
 
     # paths to look for pipelines:
-    print(cribbslab.__file__)
     path = os.path.abspath(os.path.dirname(cribbslab.__file__))
 
     paths = [path]
@@ -99,6 +99,25 @@ def main(argv=None):
 
     if module_file is None:
         raise ImportError(f"Cannot find pipeline: {pipeline}")
+
+    # The "config" action simply copies the pipeline's default pipeline.yml
+    # into the current directory. cgatcore locates that default file by
+    # walking the call stack (get_caller), which is unreliable when the
+    # pipeline module is loaded dynamically via importlib (as done here) -
+    # it can resolve to cgatcore's own package instead of the pipeline.
+    # Handle it explicitly using the module location we already know.
+    action = sys.argv[1] if len(sys.argv) > 1 else None
+    if action == "config":
+        src = os.path.join(os.path.splitext(module_file)[0], "pipeline.yml")
+        dest = "pipeline.yml"
+        if os.path.exists(dest):
+            print(f"file `{dest}` already exists - skipped")
+        elif os.path.exists(src):
+            shutil.copyfile(src, dest)
+            print(f"created new configuration file `{dest}`")
+        else:
+            raise ValueError(f"default config file not found: {src}")
+        return
 
     # Load the module using importlib
     spec = importlib.util.spec_from_file_location(pipeline, module_file)
