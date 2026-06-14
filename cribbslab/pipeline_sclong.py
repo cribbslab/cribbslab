@@ -141,19 +141,27 @@ def run_blaze(infile, outfile):
     job_threads = PARAMS.get("blaze_threads", 8)
     job_memory = PARAMS.get("blaze_memory", "16G")
 
-    whitelist = PARAMS["blaze_whitelist"]
     kit_type = PARAMS.get("blaze_kit", "3v3")  # Default to 3' v3 chemistry
     expect_cells = PARAMS.get("blaze_expect_cells", 5000)
     blaze_options = PARAMS.get("blaze_options", "")
 
+    # BLAZE bundles the standard 10x whitelists and selects one based on the
+    # kit version, so a whitelist only needs to be supplied for custom
+    # (non-10x) barcodes via --full-bc-whitelist.
+    whitelist = PARAMS.get("blaze_whitelist", "")
+    if whitelist and os.path.exists(whitelist):
+        whitelist_option = "--full-bc-whitelist %s" % whitelist
+    else:
+        whitelist_option = ""
+
     statement = """
-        blaze 
-        --kit %(kit_type)s
+        blaze
+        --10x-kit-version %(kit_type)s
         --expect-cells %(expect_cells)s
         --threads %(job_threads)s
+        %(whitelist_option)s
         %(blaze_options)s
-        --output-prefix %(outdir)s/%(basename)s
-        %(whitelist)s
+        --output-prefix %(outdir)s/%(basename)s_
         %(infile)s
     """
 

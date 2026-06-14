@@ -47,14 +47,16 @@ tenx_kit: 3v3
 
 blaze:
     # 10x kit type (overrides tenx_kit if set)
-    # Options: 3v3, 3v2, 5v2, 5v3
+    # Passed to BLAZE as --10x-kit-version
+    # Options: 3v4, 3v3, 3v2, 5v3, 5v2
     kit: 3v3
 
-    # Path to 10x barcode whitelist
-    # For 10x v3 (3' and 5'): 3M-february-2018.txt
-    # For 10x v2: 737K-august-2016.txt
-    # Download from: https://github.com/10XGenomics/cellranger/tree/master/lib/python/cellranger/barcodes
-    whitelist: /path/to/3M-february-2018.txt
+    # Path to a CUSTOM barcode whitelist (optional).
+    # Leave empty for standard 10x chemistry: BLAZE bundles the official 10x
+    # whitelists and selects the right one automatically from the kit version.
+    # Only set this if you used non-standard/custom barcodes
+    # (passed to BLAZE as --full-bc-whitelist).
+    whitelist: ''
 
     # Expected number of cells (helps with barcode filtering)
     expect_cells: 5000
