@@ -67,10 +67,29 @@ bc_data <- fread(opt$barcodes)
 cat(paste0("Loaded ", nrow(bc_data), " barcode assignments\n\n"))
 
 # Create barcode lookup (read_id -> barcode)
-# BLAZE output typically has columns: read_id, barcode, umi, etc.
-bc_lookup <- setNames(bc_data$barcode, bc_data$read_id)
-umi_lookup <- if ("umi" %in% colnames(bc_data)) {
-    setNames(bc_data$umi, bc_data$read_id)
+# BLAZE putative_bc.csv columns:
+#   read_id, putative_bc, putative_bc_min_q, putative_umi, polyT_end, ...
+bc_col <- "putative_bc"
+umi_col <- "putative_umi"
+
+if (!bc_col %in% colnames(bc_data)) {
+    stop(sprintf(
+        "Expected barcode column '%s' not found in %s. Columns present: %s",
+        bc_col, opt$barcodes, paste(colnames(bc_data), collapse = ", ")))
+}
+if (!"read_id" %in% colnames(bc_data)) {
+    stop(sprintf(
+        "Expected 'read_id' column not found in %s. Columns present: %s",
+        opt$barcodes, paste(colnames(bc_data), collapse = ", ")))
+}
+
+# Many reads have no putative barcode (empty cells) - keep only barcoded reads.
+bc_data <- bc_data[!is.na(bc_data[[bc_col]]) & bc_data[[bc_col]] != "", ]
+cat(paste0("Reads with a putative barcode: ", nrow(bc_data), "\n"))
+
+bc_lookup <- setNames(bc_data[[bc_col]], bc_data$read_id)
+umi_lookup <- if (umi_col %in% colnames(bc_data)) {
+    setNames(bc_data[[umi_col]], bc_data$read_id)
 } else {
     NULL
 }
@@ -148,19 +167,25 @@ cat("Creating tagged BAM using samtools addreplacerg + custom tagging...\n")
 
 # Simple approach: create a barcode tag file and use samtools
 bc_tag_file <- tempfile(fileext = ".tsv")
+ub_values <- if (!is.null(umi_lookup)) umi_lookup[names(bc_lookup)] else ""
+ub_values[is.na(ub_values)] <- ""
 bc_out <- data.frame(
     read_id = names(bc_lookup),
-    CB = bc_lookup,
-    UB = if (!is.null(umi_lookup)) umi_lookup[names(bc_lookup)] else "NA"
+    CB = unname(bc_lookup),
+    UB = unname(ub_values)
 )
-fwrite(bc_out, bc_tag_file, sep = "\t", col.names = FALSE)
+fwrite(bc_out, bc_tag_file, sep = "\t", col.names = FALSE, na = "")
 
-# Use awk with samtools to add tags
+# Use awk with samtools to add tags. Only append a tag when a value is present
+# so we never emit a malformed empty tag (e.g. "UB:Z:").
 tag_cmd <- paste0(
     "samtools view -h ", shQuote(opt$bam), " | ",
-    "awk -v OFS='\\t' 'NR==FNR{bc[$1]=$2; umi[$1]=$3; next} ",
+    "awk -F'\\t' -v OFS='\\t' 'NR==FNR{bc[$1]=$2; umi[$1]=$3; next} ",
     "/^@/{print; next} ",
-    "{if($1 in bc) print $0,\"CB:Z:\"bc[$1],\"UB:Z:\"umi[$1]; else print $0}' ",
+    "{line=$0; ",
+    "if($1 in bc && bc[$1]!=\"\"){line=line\"\\tCB:Z:\"bc[$1]; ",
+    "if(umi[$1]!=\"\")line=line\"\\tUB:Z:\"umi[$1]} ",
+    "print line}' ",
     shQuote(bc_tag_file), " - | ",
     "samtools view -bS -o ", shQuote(opt$output), " -"
 )
