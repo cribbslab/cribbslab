@@ -80,9 +80,17 @@ cat(paste0("GTF file: ", opt$gtf, "\n"))
 cat(paste0("Output: ", opt$output, "\n"))
 cat("========================================\n\n")
 
-# Create TxDb from GTF
+# Create TxDb from GTF.
+# makeTxDbFromGFF() moved from GenomicFeatures to txdbmaker
+# (defunct in GenomicFeatures >= 1.61.1), so use whichever is available.
+make_txdb_from_gff <- if (requireNamespace("txdbmaker", quietly = TRUE)) {
+    txdbmaker::makeTxDbFromGFF
+} else {
+    GenomicFeatures::makeTxDbFromGFF
+}
+
 cat("Loading annotations...\n")
-txdb <- makeTxDbFromGFF(opt$gtf, format = "gtf")
+txdb <- make_txdb_from_gff(opt$gtf, format = "gtf")
 
 # Get exon regions by gene
 cat("Extracting genomic features...\n")
