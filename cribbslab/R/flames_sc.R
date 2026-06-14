@@ -3,21 +3,24 @@
 # ==============================================================================
 # FLAMES single-cell transcript analysis for long-read RNA-seq
 #
-# This script runs FLAMES on single-cell long-read data to:
-# 1. Discover novel transcripts/isoforms
-# 2. Quantify transcript expression per cell
-# 3. Generate gene-level and transcript-level count matrices
-# 4. Generate spliced/unspliced matrices for RNA velocity
+# Targets the FLAMES 2.x API (Bioconductor >= 3.22 / FLAMES >= 2.4), where the
+# pipeline runs end-to-end from FASTQ: barcode demultiplexing -> minimap2 genome
+# alignment -> isoform identification -> read realignment -> transcript counting.
+# Pre-aligned BAMs are NOT accepted by FLAMES 2.x.
+#
+# If a barcode whitelist is supplied (e.g. from an upstream BLAZE run), FLAMES is
+# configured to demultiplex with flexiplex against that whitelist; otherwise
+# FLAMES runs BLAZE internally using the expected cell number.
 #
 # Usage:
-#   Rscript flames_sc.R --bam_list <file> --gtf <file> --genome <file> \
-#                       --outdir <dir> --threads <int>
+#   Rscript flames_sc.R --fastq <file/dir> --gtf <file> --genome <file> \
+#                       --outdir <dir> --threads <int> \
+#                       [--barcodes <whitelist>] [--expect_cells <int>]
 #
-# Output:
-#   - transcript_count.csv.gz: Transcript-level counts per cell
-#   - gene_count.csv.gz: Gene-level counts per cell
-#   - isoform_annotated.filtered.gff3: Novel isoform annotations
-#   - transcript_assembly.fa: Transcript sequences
+# Output (written by FLAMES into --outdir):
+#   - transcript_count.csv.gz, gene_count.csv.gz
+#   - isoform_annotated.filtered.gff3, transcript_assembly.fa
+#   - align2genome.bam, matched_reads.fastq, ...
 # ==============================================================================
 
 suppressPackageStartupMessages({
@@ -28,10 +31,10 @@ suppressPackageStartupMessages({
 
 # Parse command line arguments
 option_list <- list(
-    make_option(c("-b", "--bam_list"),
+    make_option(c("-q", "--fastq"),
                 type = "character",
                 default = NULL,
-                help = "File containing list of BAM file paths (one per line)",
+                help = "Input FASTQ file (or directory of FASTQs) for one sample",
                 metavar = "FILE"),
     make_option(c("-g", "--gtf"),
                 type = "character",
@@ -53,21 +56,26 @@ option_list <- list(
                 default = 8,
                 help = "Number of threads [default: %default]",
                 metavar = "INT"),
+    make_option(c("--barcodes"),
+                type = "character",
+                default = NULL,
+                help = "Optional cell-barcode whitelist (one barcode per line). If given, flexiplex demultiplexing is used.",
+                metavar = "FILE"),
+    make_option(c("--expect_cells"),
+                type = "integer",
+                default = 5000,
+                help = "Expected number of cells (used when no whitelist is given) [default: %default]",
+                metavar = "INT"),
     make_option(c("--min_support"),
                 type = "integer",
                 default = 3,
                 help = "Minimum reads to support a transcript [default: %default]",
                 metavar = "INT"),
-    make_option(c("--min_cells"),
-                type = "integer",
-                default = 3,
-                help = "Minimum cells expressing a transcript [default: %default]",
-                metavar = "INT"),
     make_option(c("--do_discovery"),
                 type = "logical",
                 default = TRUE,
-                action = "store_true",
-                help = "Perform novel transcript discovery [default: %default]")
+                help = "Perform novel transcript discovery [default: %default]",
+                metavar = "BOOL")
 )
 
 opt_parser <- OptionParser(option_list = option_list,
@@ -75,8 +83,8 @@ opt_parser <- OptionParser(option_list = option_list,
 opt <- parse_args(opt_parser)
 
 # Validate required arguments
-if (is.null(opt$bam_list)) {
-    stop("Error: --bam_list is required")
+if (is.null(opt$fastq)) {
+    stop("Error: --fastq is required")
 }
 if (is.null(opt$gtf)) {
     stop("Error: --gtf is required")
@@ -84,127 +92,110 @@ if (is.null(opt$gtf)) {
 if (is.null(opt$genome)) {
     stop("Error: --genome is required")
 }
+if (!file.exists(opt$fastq)) {
+    stop(sprintf("Error: --fastq path does not exist: %s", opt$fastq))
+}
+if (!file.exists(opt$gtf)) {
+    stop(sprintf("Error: --gtf does not exist: %s", opt$gtf))
+}
+if (!file.exists(opt$genome)) {
+    stop(sprintf("Error: --genome does not exist: %s", opt$genome))
+}
 
 # Create output directory
 if (!dir.exists(opt$outdir)) {
     dir.create(opt$outdir, recursive = TRUE)
 }
 
+# Decide on the demultiplexing strategy. If a non-empty whitelist is provided,
+# demultiplex with flexiplex against it; otherwise run BLAZE with expect_cells.
+barcodes_file <- NULL
+demultiplexer <- "BLAZE"
+if (!is.null(opt$barcodes) &&
+        file.exists(opt$barcodes) &&
+        file.info(opt$barcodes)$size > 0) {
+    barcodes_file <- opt$barcodes
+    demultiplexer <- "flexiplex"
+}
+
 cat("========================================\n")
 cat("FLAMES Single-Cell Analysis\n")
 cat("========================================\n")
-cat(paste0("BAM list: ", opt$bam_list, "\n"))
+cat(paste0("FASTQ: ", opt$fastq, "\n"))
 cat(paste0("GTF file: ", opt$gtf, "\n"))
 cat(paste0("Genome file: ", opt$genome, "\n"))
 cat(paste0("Output directory: ", opt$outdir, "\n"))
 cat(paste0("Threads: ", opt$threads, "\n"))
+cat(paste0("Demultiplexer: ", demultiplexer, "\n"))
+if (!is.null(barcodes_file)) {
+    cat(paste0("Barcode whitelist: ", barcodes_file, "\n"))
+} else {
+    cat(paste0("Expected cells: ", opt$expect_cells, "\n"))
+}
 cat(paste0("Min support reads: ", opt$min_support, "\n"))
-cat(paste0("Min cells: ", opt$min_cells, "\n"))
 cat(paste0("Discovery mode: ", opt$do_discovery, "\n"))
 cat("========================================\n\n")
 
-# Read BAM file list
-bam_files <- readLines(opt$bam_list)
-bam_files <- bam_files[bam_files != ""]
-
-cat(paste0("Found ", length(bam_files), " BAM files:\n"))
-for (f in bam_files) {
-    cat(paste0("  - ", basename(f), "\n"))
-}
-cat("\n")
-
-# Configure FLAMES
+# Build a FLAMES config. create_config() writes a JSON config into outdir and
+# returns its path. Parameters are overridden via dot-notation. oarfish
+# quantification is disabled to avoid requiring the external 'oarfish' tool.
 cat("Configuring FLAMES...\n")
-
-config <- jsonlite::fromJSON(
-    system.file("extdata", "config_sclr_nanopore_default.json", package = "FLAMES")
+config_file <- create_config(
+    opt$outdir,
+    type = "sc_3end",
+    pipeline_parameters.threads = opt$threads,
+    pipeline_parameters.demultiplexer = demultiplexer,
+    pipeline_parameters.do_isoform_identification = opt$do_discovery,
+    pipeline_parameters.oarfish_quantification = FALSE,
+    isoform_parameters.min_sup_cnt = opt$min_support
 )
+cat(paste0("Configuration written to: ", config_file, "\n\n"))
 
-# Update config with user parameters
-config$pipeline_parameters$do_isoform_identification <- opt$do_discovery
-config$isoform_parameters$min_sup_cnt <- opt$min_support
-config$alignment_parameters$threads <- opt$threads
-
-# Save config
-config_file <- file.path(opt$outdir, "flames_config.json")
-jsonlite::write_json(config, config_file, auto_unbox = TRUE, pretty = TRUE)
-
-cat("Configuration saved to: ", config_file, "\n\n")
-
-# Run FLAMES
+# Run FLAMES (demultiplex -> align -> isoform ID -> realign -> count)
 cat("Running FLAMES analysis...\n")
 cat(paste0("Start time: ", Sys.time(), "\n\n"))
 
-# Create FLAMES SingleCellExperiment
 sce <- sc_long_pipeline(
     annotation = opt$gtf,
-    fastq = NULL,  # We're using pre-aligned BAMs
+    fastq = opt$fastq,
     genome_fa = opt$genome,
     outdir = opt$outdir,
-    bam_path = bam_files,
+    barcodes_file = barcodes_file,
+    expect_cell_number = if (is.null(barcodes_file)) opt$expect_cells else NULL,
     config_file = config_file
 )
 
 cat(paste0("\nEnd time: ", Sys.time(), "\n"))
+
+# sc_long_pipeline returns a SingleCellExperiment on success, or the pipeline
+# object if it errored out part-way.
+if (!methods::is(sce, "SingleCellExperiment")) {
+    stop("FLAMES did not return a SingleCellExperiment - the run failed. ",
+         "See the FLAMES messages above and the pipeline.rds in the output ",
+         "directory; it can be resumed with FLAMES::resume_FLAMES().")
+}
+
 cat("FLAMES analysis complete.\n\n")
 
-# Save outputs
+# Save the SCE object alongside the FLAMES output files.
 cat("Saving output files...\n")
-
-# Save SCE object
 sce_file <- file.path(opt$outdir, "flames_sce.rds")
 saveRDS(sce, sce_file)
 cat(paste0("SCE object saved to: ", sce_file, "\n"))
-
-# Extract and save count matrices
-if (!is.null(sce)) {
-    # Transcript counts
-    transcript_counts <- counts(sce)
-    transcript_file <- file.path(opt$outdir, "transcript_counts.csv.gz")
-    write.csv(as.matrix(transcript_counts), gzfile(transcript_file))
-    cat(paste0("Transcript counts saved to: ", transcript_file, "\n"))
-    
-    # Gene counts (aggregate transcripts to genes)
-    if ("gene_id" %in% colnames(rowData(sce))) {
-        gene_counts <- rowsum(as.matrix(transcript_counts), rowData(sce)$gene_id)
-        gene_file <- file.path(opt$outdir, "gene_counts.csv.gz")
-        write.csv(gene_counts, gzfile(gene_file))
-        cat(paste0("Gene counts saved to: ", gene_file, "\n"))
-    }
-}
 
 # Summary statistics
 cat("\n========================================\n")
 cat("Summary\n")
 cat("========================================\n")
-
-if (!is.null(sce)) {
-    cat(paste0("Total transcripts: ", nrow(sce), "\n"))
-    cat(paste0("Total cells: ", ncol(sce), "\n"))
-    
-    # Transcript class summary
-    if ("transcript_class" %in% colnames(rowData(sce))) {
-        class_counts <- table(rowData(sce)$transcript_class)
-        cat("\nTranscript classes:\n")
-        for (class_name in names(class_counts)) {
-            cat(paste0("  ", class_name, ": ", class_counts[class_name], "\n"))
-        }
-    }
-    
-    # Cell statistics
-    total_counts <- colSums(counts(sce))
+cat(paste0("Total transcripts: ", nrow(sce), "\n"))
+cat(paste0("Total cells: ", ncol(sce), "\n"))
+if (length(assayNames(sce)) > 0) {
+    total_counts <- colSums(assay(sce, 1))
     cat("\nCell statistics:\n")
-    cat(paste0("  Median counts per cell: ", median(total_counts), "\n"))
+    cat(paste0("  Median counts per cell: ", stats::median(total_counts), "\n"))
     cat(paste0("  Mean counts per cell: ", round(mean(total_counts), 2), "\n"))
-    cat(paste0("  Min counts per cell: ", min(total_counts), "\n"))
-    cat(paste0("  Max counts per cell: ", max(total_counts), "\n"))
 }
 
 cat("\n========================================\n")
 cat("FLAMES analysis completed successfully!\n")
 cat("========================================\n")
-
-# Save session info
-session_file <- file.path(opt$outdir, "flames_session_info.txt")
-writeLines(capture.output(sessionInfo()), session_file)
-cat(paste0("\nSession info saved to: ", session_file, "\n"))

@@ -283,42 +283,62 @@ def tag_bam_with_barcodes(infile, outfile):
 # FLAMES: Transcript discovery and quantification
 # -----------------------------------------------
 
-@follows(mkdir("flames"))
-@merge(tag_bam_with_barcodes, "flames/flames_output.sentinel")
-def run_flames(infiles, outfile):
+@follows(mkdir("flames"), run_blaze)
+@transform(SEQUENCEFILES,
+           SEQUENCEFILES_REGEX,
+           r"flames/\1/flames_output.sentinel")
+def run_flames(infile, outfile):
     """
     Run FLAMES for single-cell transcript discovery and quantification.
+
+    FLAMES 2.x runs end-to-end from FASTQ (it performs its own barcode
+    demultiplexing and minimap2 alignment internally - it does not accept
+    pre-aligned BAMs). One FLAMES run is performed per input sample.
+
     FLAMES performs:
+    - Cell barcode demultiplexing (flexiplex against the BLAZE whitelist if
+      available, otherwise BLAZE using the expected cell number)
+    - Splice-aware genome alignment
     - Novel isoform identification
-    - Transcript-level quantification
-    - Gene-level quantification
-    - Spliced/unspliced matrix generation for RNA velocity
+    - Transcript- and gene-level quantification
 
     Parameters from pipeline.yml:
         flames_gtf: annotation GTF file
         flames_fasta: reference genome fasta
+        flames_min_support_reads / flames_do_discovery
+        blaze_expect_cells: expected number of cells
     """
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
-    # Create input file list
-    bam_list = "flames/bam_files.txt"
-    with open(bam_list, "w") as f:
-        for infile in infiles:
-            f.write(os.path.abspath(infile) + "\n")
-
-    outdir = "flames"
+    outdir = os.path.dirname(outfile)
+    sample = os.path.basename(outdir)
 
     job_threads = PARAMS.get("flames_threads", 8)
     job_memory = PARAMS.get("flames_memory", "64G")
 
+    min_support = PARAMS.get("flames_min_support_reads", 3)
+    do_discovery = PARAMS.get("flames_do_discovery", True)
+    expect_cells = PARAMS.get("blaze_expect_cells", 5000)
+
+    # Reuse the BLAZE cell-barcode whitelist (if present) so FLAMES demultiplexes
+    # against the already-identified barcodes instead of re-running BLAZE.
+    whitelist = "blaze/{}_whitelist.csv".format(sample)
+    barcodes_option = ""
+    if os.path.exists(whitelist):
+        barcodes_option = "--barcodes %s" % whitelist
+
     statement = """
         Rscript %(R_SRC_PATH)s/flames_sc.R
-        --bam_list %(bam_list)s
+        --fastq %(infile)s
         --gtf %(flames_gtf)s
         --genome %(flames_fasta)s
         --outdir %(outdir)s
         --threads %(job_threads)s
+        --expect_cells %(expect_cells)s
+        --min_support %(min_support)s
+        --do_discovery %(do_discovery)s
+        %(barcodes_option)s
         && touch %(outfile)s
     """
 
