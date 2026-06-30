@@ -10,7 +10,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
+        # macos-13 is Intel (osx-64). We deliberately avoid macos-latest, which
+        # is Apple Silicon (osx-arm64) where several bioconda/conda-forge
+        # packages used here (e.g. multiqc's deps pyaml-env / lzstring) have no
+        # build, causing the environment solve to fail.
+        os: ["ubuntu-latest", "macos-13"]
         python-version: ["3.10", "3.11"]
 
     defaults:
@@ -22,13 +26,13 @@ jobs:
       - name: Cache conda
         uses: actions/cache@v3
         env:
-          # Increase this value to reset cache if conda/environments/cgat-core.yml has not changed
+          # Increase this value to reset cache if conda/environments/cribbslab.yml has not changed
           CACHE_NUMBER: 0
         with:
           path: ~/conda_pkgs_dir
           key:
             ${{ runner.os }}-conda-${{ env.CACHE_NUMBER }}-${{
-            hashFiles('conda/environments/cgat-core.yml') }}
+            hashFiles('conda/environments/cribbslab.yml') }}
       - uses: conda-incubator/setup-miniconda@v3
         with:
           mamba-version: "*"
