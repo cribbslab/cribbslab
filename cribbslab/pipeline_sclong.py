@@ -229,13 +229,30 @@ def align_minimap2(infile, outfile):
     minimap2_options = PARAMS.get("minimap2_options", "-ax splice -uf -k14")
     junc_bed = "aligned/junctions.bed"
 
+    # Per-thread memory for samtools sort. The default (768M/thread) silently
+    # scales with -@, so for large runs this bounds the sort buffer explicitly.
+    sort_memory = PARAMS.get("minimap2_sort_memory", "1G")
+    # Keep sort temp files next to the output (on the working disk) rather than
+    # in a possibly-small /tmp, and give them a unique prefix per BAM.
+    sort_tmp = outfile + ".sorttmp"
+    # Capture minimap2's own stderr separately so that when it exits abnormally
+    # (OOM-kill, crash, etc.) we keep its real error message instead of only
+    # seeing samtools' downstream "truncated file" complaint about the broken pipe.
+    minimap2_log = outfile + ".minimap2.log"
+
+    # pipefail ensures a minimap2 failure (e.g. OOM-kill or a corrupt input
+    # FASTQ) propagates as an error instead of being masked by samtools, which
+    # would otherwise abort on the partial stream and leave a half-written BAM.
     statement = """
+        set -o pipefail &&
         minimap2 %(minimap2_options)s
         --junc-bed %(junc_bed)s
         -t %(job_threads)s
         %(genome_fasta)s
         %(infile)s
-        | samtools sort -@ %(job_threads)s -O bam -o %(outfile)s -
+        2> %(minimap2_log)s
+        | samtools sort -@ %(job_threads)s -m %(sort_memory)s
+        -T %(sort_tmp)s -O bam -o %(outfile)s -
         && samtools index %(outfile)s
     """
 

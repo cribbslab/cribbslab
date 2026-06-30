@@ -95,6 +95,12 @@ minimap2:
     # Memory per job
     memory: 8G
 
+    # Per-thread memory for the samtools sort step (passed as `samtools sort -m`).
+    # Total sort memory is roughly sort_memory * threads, so keep an eye on this
+    # for large runs. Sort temp files are written next to the output BAM.
+    # Lower this (not raise it) if the job is being OOM-killed.
+    sort_memory: 1G
+
 # -----------------------------------------------
 # FLAMES settings (transcript discovery and quantification)
 # -----------------------------------------------
