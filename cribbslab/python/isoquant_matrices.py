@@ -285,18 +285,33 @@ def load_read_labels(path, fmt, allinfo_path=None):
     """
     log.info("Loading per-read assignments (%s): %s", fmt, path)
 
-    # IsoQuant headers often start with '#'. Read the first line to get
-    # column names, then load the body with header=None and names= so that
-    # comment="#" does not accidentally discard the header row.
+    # IsoQuant files may start with one or more single-field comment lines
+    # (e.g. "# IsoQuant ...") before the real tab-separated header line
+    # (which also starts with '#', e.g. "#read_id\tchr\t...").
+    # Scan forward until we find the line with multiple tab-separated fields;
+    # that is the column-name row. Count lines consumed so skiprows is correct.
     with _open(path) as fh:
-        first_line = fh.readline()
-    col_names = first_line.lstrip("#").strip().split("\t")
+        col_names = None
+        skip = 0
+        for raw_line in fh:
+            skip += 1
+            parts = raw_line.lstrip("#").strip().split("\t")
+            if len(parts) > 1:
+                col_names = parts
+                break
+
+    if col_names is None:
+        raise ValueError(
+            "Could not find a tab-separated header line in: {}".format(path)
+        )
+    log.info("Detected %d columns (skipped %d header/comment lines): %s",
+             len(col_names), skip, col_names[:6])
 
     df = pd.read_csv(
         path, sep="\t",
         header=None,
         names=col_names,
-        skiprows=1,
+        skiprows=skip,
         dtype=str,
         low_memory=False,
     )
@@ -406,14 +421,27 @@ def _require_columns(df, cols):
         )
 
 
+def _scan_tsv_header(fh):
+    """
+    Advance fh past comment lines, return (col_names, n_skipped).
+
+    Reads lines until a multi-field tab-separated line is found; that line
+    is treated as the header (stripping a leading '#' if present).
+    """
+    for n, raw_line in enumerate(fh, start=1):
+        parts = raw_line.lstrip("#").strip().split("\t")
+        if len(parts) > 1:
+            return parts, n
+    raise ValueError("No tab-separated header found in file.")
+
+
 def _load_allinfo_read_ids(path):
     """Return set of surviving read_ids from an allinfo file."""
     log.info("Loading allinfo read IDs from: %s", path)
     ids = set()
     with _open(path) as fh:
-        for i, line in enumerate(fh):
-            if i == 0:
-                continue
+        _, _ = _scan_tsv_header(fh)
+        for line in fh:
             ids.add(line.split("\t")[0])
     return ids
 
@@ -421,9 +449,9 @@ def _load_allinfo_read_ids(path):
 def _load_allinfo_barcodes(path):
     """Return DataFrame with read_id, barcode, umi from allinfo file."""
     log.info("Loading allinfo barcodes from: %s", path)
-    rows = []
     with _open(path) as fh:
-        header = fh.readline().strip().split("\t")
+        header, _ = _scan_tsv_header(fh)
+        rows = []
         for line in fh:
             parts = line.strip().split("\t")
             rows.append(dict(zip(header, parts)))
@@ -681,7 +709,7 @@ def _load_tx_gene_map(isoquant_dir, sample):
 
     tx_to_gene = {}
     with _open(path) as fh:
-        header = fh.readline().lstrip("#").strip().split("\t")
+        header, _ = _scan_tsv_header(fh)
         gene_col = next((i for i, c in enumerate(header)
                          if c in ("gene_id", "gene")), None)
         iso_col = next((i for i, c in enumerate(header)
