@@ -15,7 +15,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
   <meta charset="utf-8">
   <title>IsoQuant QC Report — {{ sample }}</title>
-  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
   <style>
     body { font-family: system-ui, sans-serif; margin: 2rem; max-width: 1200px; }
     .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 1rem 0; }
@@ -63,7 +63,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   <script>
     var figures = {{ figures_json | safe }};
     for (var id in figures) {
-      Plotly.newPlot(id, figures[id].data, figures[id].layout, {responsive: true});
+      try {
+        Plotly.newPlot(id, figures[id].data, figures[id].layout, {responsive: true});
+      } catch (e) {
+        var el = document.getElementById(id);
+        if (el) { el.innerHTML = '<p class="warn">Failed to render figure: ' + e + '</p>'; }
+        console.error("Failed to render", id, e);
+      }
     }
   </script>
 </body>
