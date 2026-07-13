@@ -655,10 +655,6 @@ def count_velocity(infile, outfile):
 # Splice matrices from IsoQuant output
 # -----------------------------------------------
 
-PYTHON_SRC_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "python"))
-
-
 @follows(mkdir("splice_matrices"))
 @transform(quantify_isoquant,
            regex(r"isoquant/(\S+)/isoquant\.sentinel"),
@@ -681,6 +677,10 @@ def build_splice_matrices(infile, outfile):
     IsoQuant's native matrix; warnings are emitted if divergence exceeds the
     configured tolerance.
     """
+
+    # Must be a local so P.run() interpolation finds it in locals()
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
 
     sample = os.path.basename(os.path.dirname(infile))
     isoquant_dir = os.path.dirname(infile)
@@ -718,6 +718,10 @@ def qc_splice_proportion(infiles, outfile):
     unspliced_fraction, cross-tabulates against total_umis and n_genes bins,
     and writes a *_mqc.tsv file picked up automatically by MultiQC.
     """
+
+    # Must be a local so P.run() interpolation finds it in locals()
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
 
     # Collect per-sample QC tables from splice_matrices/
     # Each sentinel lives at splice_matrices/{sample}.splice_matrices.sentinel;

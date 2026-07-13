@@ -205,8 +205,20 @@ isoquant:
     # Path or name of the IsoQuant executable
     binary: isoquant.py
 
-    # Single-cell mode. Use tenX_v3 for 10x 3' v3 chemistry (12bp UMI, ED3
-    # dedup). Change to tenX_v2 for v2 chemistry (10bp UMI).
+    # Single-cell mode. Controls UMI edit-distance deduplication threshold.
+    # IsoQuant has no dedicated 10x 5' gene expression mode, but because
+    # --barcoded_bam is used (barcodes read from CB tag, not called from
+    # reads), the mode only affects the UMI ED threshold and UMI length
+    # auto-detection from the BAM. The mapping is:
+    #
+    #   10x 3' v3  ->  tenX_v3        (16bp BC, 12bp UMI, ED3)
+    #   10x 5' v3  ->  tenX_v3        (same BC+UMI structure, ED3 is correct)
+    #   10x 3' v2  ->  tenX_v2_split  (16bp BC, 10bp UMI, ED3)
+    #   10x 5' v2  ->  tenX_v3        (16bp BC, 10bp UMI; ED3 is acceptable,
+    #                                   slightly permissive for a 10bp UMI)
+    #
+    # Use custom_sc with an MDF file if you need exact molecule-structure
+    # matching for a non-standard chemistry.
     mode: tenX_v3
 
     # Path to annotation GTF file (used for --genedb)
