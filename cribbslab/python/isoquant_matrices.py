@@ -392,8 +392,13 @@ def _normalise_read_assignments(df, allinfo_path):
     if allinfo_path:
         allinfo = _load_allinfo_barcodes(allinfo_path)
         if "read_id" in df.columns and not allinfo.empty:
+            # Cast both sides to str so the merge key types always match
+            df["read_id"] = df["read_id"].astype(str)
+            allinfo["read_id"] = allinfo["read_id"].astype(str)
             df = df.merge(allinfo[["read_id", "barcode", "umi"]],
                           on="read_id", how="left")
+            log.info("Joined allinfo barcodes: %d/%d reads matched",
+                     df["barcode"].notna().sum(), len(df))
             return df
 
     # Try 'additional' column for CB:Z:/UB:Z: tags
@@ -435,30 +440,63 @@ def _scan_tsv_header(fh):
     raise ValueError("No tab-separated header found in file.")
 
 
+def _load_allinfo_df(path):
+    """
+    Load an IsoQuant allinfo file as a DataFrame.
+
+    Uses the same header-scan approach as load_read_labels to handle any
+    leading comment lines. All columns are read as strings.
+    """
+    with _open(path) as fh:
+        col_names, skip = _scan_tsv_header(fh)
+    log.info("allinfo columns (%d, skipped %d lines): %s",
+             len(col_names), skip, col_names)
+    df = pd.read_csv(
+        path, sep="\t",
+        header=None,
+        names=col_names,
+        skiprows=skip,
+        dtype=str,
+        low_memory=False,
+    )
+    # Normalise column names in case of leading '#'
+    df.columns = [c.lstrip("#").strip() for c in df.columns]
+    return df
+
+
 def _load_allinfo_read_ids(path):
     """Return set of surviving read_ids from an allinfo file."""
     log.info("Loading allinfo read IDs from: %s", path)
-    ids = set()
-    with _open(path) as fh:
-        _, _ = _scan_tsv_header(fh)
-        for line in fh:
-            ids.add(line.split("\t")[0])
-    return ids
+    df = _load_allinfo_df(path)
+    id_col = next((c for c in df.columns if c == "read_id"), None)
+    if id_col is None:
+        log.warning("No 'read_id' column in allinfo; post-dedup filter skipped.")
+        return set()
+    return set(df[id_col].dropna().astype(str))
 
 
 def _load_allinfo_barcodes(path):
     """Return DataFrame with read_id, barcode, umi from allinfo file."""
     log.info("Loading allinfo barcodes from: %s", path)
-    with _open(path) as fh:
-        header, _ = _scan_tsv_header(fh)
-        rows = []
-        for line in fh:
-            parts = line.strip().split("\t")
-            rows.append(dict(zip(header, parts)))
-    df = pd.DataFrame(rows)
+    df = _load_allinfo_df(path)
+    # Tolerate minor column name variations
+    rename = {}
+    for candidate, target in [("read_id", "read_id"),
+                               ("barcode", "barcode"),
+                               ("umi", "umi"),
+                               ("UMI", "umi"),
+                               ("cell_barcode", "barcode"),
+                               ("CB", "barcode"),
+                               ("UB", "umi")]:
+        if candidate in df.columns and target not in rename.values():
+            rename[candidate] = target
+    df = df.rename(columns=rename)
     for col in ["read_id", "barcode", "umi"]:
         if col not in df.columns:
+            log.warning("allinfo missing expected column '%s'", col)
             df[col] = np.nan
+        else:
+            df[col] = df[col].astype(str)
     return df[["read_id", "barcode", "umi"]]
 
 
