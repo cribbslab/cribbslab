@@ -426,6 +426,26 @@ def _require_columns(df, cols):
         )
 
 
+# Canonical column order for IsoQuant *.UMI_filtered.ED*.allinfo files.
+# These files often have no header row; the first data line looks like a
+# multi-field TSV and must not be mistaken for a header.
+ALLINFO_COLUMNS = [
+    "read_id",
+    "gene_id",
+    "cell_type",
+    "barcode",
+    "umi",
+    "introns",
+    "TSS",
+    "polyA",
+    "exons",
+    "read_type",
+    "intron_count",
+    "transcript_id",
+    "transcript_type",
+]
+
+
 def _scan_tsv_header(fh):
     """
     Advance fh past comment lines, return (col_names, n_skipped).
@@ -440,17 +460,51 @@ def _scan_tsv_header(fh):
     raise ValueError("No tab-separated header found in file.")
 
 
+def _looks_like_allinfo_header(parts):
+    """True if the multi-field line is a real header, not a data row."""
+    lowered = {p.strip().lower() for p in parts}
+    return "read_id" in lowered or "barcode" in lowered
+
+
 def _load_allinfo_df(path):
     """
     Load an IsoQuant allinfo file as a DataFrame.
 
-    Uses the same header-scan approach as load_read_labels to handle any
-    leading comment lines. All columns are read as strings.
+    The allinfo file often has no header: after optional comment lines the
+    first multi-field line is already data. Detect that case and apply the
+    known ALLINFO_COLUMNS schema instead of treating the data row as names.
     """
     with _open(path) as fh:
-        col_names, skip = _scan_tsv_header(fh)
-    log.info("allinfo columns (%d, skipped %d lines): %s",
-             len(col_names), skip, col_names)
+        first_fields, line_no = _scan_tsv_header(fh)
+
+    if _looks_like_allinfo_header(first_fields):
+        col_names = [c.lstrip("#").strip() for c in first_fields]
+        skip = line_no  # skip comments + header row
+    else:
+        # No header: first multi-field line is data. Skip only preceding
+        # comment lines so that row is included in the DataFrame.
+        n_cols = len(first_fields)
+        if n_cols == len(ALLINFO_COLUMNS):
+            col_names = list(ALLINFO_COLUMNS)
+        elif n_cols >= 5:
+            # Minimal SC fields we need; pad any extras generically
+            col_names = list(ALLINFO_COLUMNS[:5]) + [
+                "col{}".format(i) for i in range(5, n_cols)
+            ]
+        else:
+            raise ValueError(
+                "allinfo file has unexpected column count {}: {}".format(
+                    n_cols, first_fields[:5]
+                )
+            )
+        skip = line_no - 1  # keep the first data line
+        log.info(
+            "allinfo has no header row; using schema for %d columns",
+            len(col_names),
+        )
+
+    log.info("allinfo columns (%d, skiprows=%d): %s",
+             len(col_names), skip, col_names[:6])
     df = pd.read_csv(
         path, sep="\t",
         header=None,
@@ -458,8 +512,8 @@ def _load_allinfo_df(path):
         skiprows=skip,
         dtype=str,
         low_memory=False,
+        comment="#",
     )
-    # Normalise column names in case of leading '#'
     df.columns = [c.lstrip("#").strip() for c in df.columns]
     return df
 
@@ -468,18 +522,16 @@ def _load_allinfo_read_ids(path):
     """Return set of surviving read_ids from an allinfo file."""
     log.info("Loading allinfo read IDs from: %s", path)
     df = _load_allinfo_df(path)
-    id_col = next((c for c in df.columns if c == "read_id"), None)
-    if id_col is None:
+    if "read_id" not in df.columns:
         log.warning("No 'read_id' column in allinfo; post-dedup filter skipped.")
         return set()
-    return set(df[id_col].dropna().astype(str))
+    return set(df["read_id"].dropna().astype(str))
 
 
 def _load_allinfo_barcodes(path):
     """Return DataFrame with read_id, barcode, umi from allinfo file."""
     log.info("Loading allinfo barcodes from: %s", path)
     df = _load_allinfo_df(path)
-    # Tolerate minor column name variations
     rename = {}
     for candidate, target in [("read_id", "read_id"),
                                ("barcode", "barcode"),
@@ -497,6 +549,9 @@ def _load_allinfo_barcodes(path):
             df[col] = np.nan
         else:
             df[col] = df[col].astype(str)
+    n_ok = df["barcode"].notna().sum()
+    log.info("allinfo barcode table: %d rows, %d with barcode",
+             len(df), n_ok)
     return df[["read_id", "barcode", "umi"]]
 
 
@@ -504,19 +559,33 @@ def _load_allinfo_barcodes(path):
 # Molecule-level collapse
 # ---------------------------------------------------------------------------
 
-def collapse_to_molecules(df):
+def collapse_to_molecules(df, feature_col="gene_id"):
     """
-    Collapse read-level labels to molecule-level by (barcode, umi, gene_id).
+    Collapse read-level labels to molecule-level by (barcode, umi, feature).
 
-    Strategy: if any read in the group is labelled 'spliced', the molecule is
-    spliced; if any is 'unspliced' and none are spliced, it is unspliced;
-    otherwise ambiguous. This mirrors IsoQuant's own representative-read
-    selection logic (unique > ambiguous, more exons, longer span).
+    feature_col is typically 'gene_id' (gene-level) or 'isoform_id'
+    (transcript-level). Strategy: if any read in the group is labelled
+    'spliced', the molecule is spliced; if any is 'unspliced' and none are
+    spliced, it is unspliced; otherwise ambiguous.
     """
-    log.info("Collapsing %d reads to molecules by (barcode, umi, gene_id)...",
-             len(df))
-    df = df.dropna(subset=["barcode", "umi", "gene_id"])
+    log.info(
+        "Collapsing %d reads to molecules by (barcode, umi, %s)...",
+        len(df), feature_col,
+    )
+    needed = ["barcode", "umi", feature_col, "label"]
+    missing = [c for c in needed if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "collapse_to_molecules missing columns: {}. Available: {}".format(
+                missing, list(df.columns)
+            )
+        )
+
+    df = df.dropna(subset=["barcode", "umi", feature_col]).copy()
     df = df[df["barcode"] != "."]
+    # Drop rows where barcode/umi were never joined (literal 'nan' from cast)
+    df = df[~df["barcode"].isin(["nan", "None", ""])]
+    df = df[~df["umi"].isin(["nan", "None", ""])]
 
     def _mol_label(labels):
         s = set(labels)
@@ -527,10 +596,13 @@ def collapse_to_molecules(df):
         return "ambiguous"
 
     mol = (
-        df.groupby(["barcode", "umi", "gene_id"])["label"]
+        df.groupby(["barcode", "umi", feature_col], sort=False)["label"]
         .apply(_mol_label)
         .reset_index()
     )
+    # Normalise feature column name to gene_id for build_molecule_matrix
+    if feature_col != "gene_id":
+        mol = mol.rename(columns={feature_col: "gene_id"})
     log.info("Collapsed to %d molecules.", len(mol))
     return mol
 
@@ -898,13 +970,11 @@ def main(argv=None):
         )
 
     # ---- Transcript-level AnnData (spliced only) ----------------------------
-    # Build spliced transcript matrix from mol_df using transcript assignments
-    # We need isoform_id in mol_df; if absent (read_assignments without isoform
-    # column), skip transcript-level output with a warning.
+    # Build spliced transcript matrix from mol_df using transcript assignments.
+    # Collapse by isoform_id (not by renaming onto gene_id, which would create
+    # a duplicate column and break groupby).
     if "isoform_id" in reads_df.columns:
-        mol_tx_df = collapse_to_molecules(
-            reads_df.rename(columns={"isoform_id": "gene_id"})
-        )
+        mol_tx_df = collapse_to_molecules(reads_df, feature_col="isoform_id")
         tx_spliced_mat = build_molecule_matrix(
             mol_tx_df, "spliced", tx_features, tx_barcodes)
     else:
