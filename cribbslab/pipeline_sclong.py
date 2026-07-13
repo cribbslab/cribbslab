@@ -747,6 +747,59 @@ def qc_splice_proportion(infiles, outfile):
 
 
 # -----------------------------------------------
+# IsoQuant interactive QC report (static HTML export)
+# -----------------------------------------------
+
+@follows(mkdir("isoquant_report"))
+@transform(build_splice_matrices,
+           regex(r"splice_matrices/(\S+)\.splice_matrices\.sentinel"),
+           r"isoquant_report/\1/report.html")
+def generate_isoquant_report(infile, outfile):
+    """
+    Generate a static IsoQuant QC HTML report and a config.yaml for the
+    interactive Streamlit app.
+
+    Runs headless (no Streamlit server). The HTML bundles Plotly figures for
+    read-assignment QC, count matrix QC, gene/isoform comparison, and
+    splicing structural summaries. Open the interactive app afterwards with:
+
+        streamlit run isoquant_report/app.py -- --config isoquant_report/{sample}/config.yaml
+    """
+
+    sample = infile.replace(".splice_matrices.sentinel", "").split("/")[-1]
+    isoquant_dir = os.path.join("isoquant", sample, sample)
+    splice_dir = "splice_matrices"
+    outdir = os.path.dirname(outfile)
+
+    gene_h5ad = os.path.join(splice_dir, "{}.gene.h5ad".format(sample))
+    tx_h5ad = os.path.join(
+        splice_dir, "{}.transcript.spliced.h5ad".format(sample))
+    barcode_qc = os.path.join(splice_dir, "{}.barcode_qc.tsv".format(sample))
+
+    job_memory = PARAMS.get("isoquant_report_memory", "16G")
+    write_config = PARAMS.get("isoquant_report_write_config", True)
+    write_config_flag = "--write-config" if write_config else ""
+
+    # Parent of isoquant_report/ package on PYTHONPATH for python -m isoquant_report
+    ISOQUANT_REPORT_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "isoquant_report"))
+
+    statement = """
+        PYTHONPATH=%(ISOQUANT_REPORT_ROOT)s
+        python -m isoquant_report
+        --isoquant-dir %(isoquant_dir)s
+        --sample %(sample)s
+        --gene-h5ad %(gene_h5ad)s
+        --transcript-h5ad %(tx_h5ad)s
+        --barcode-qc %(barcode_qc)s
+        --outdir %(outdir)s
+        %(write_config_flag)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
 # QC: NanoPlot
 # -----------------------------------------------
 
@@ -827,7 +880,8 @@ def multiqc(infiles, outfile):
 # -----------------------------------------------
 
 @follows(run_flames, count_genes, count_velocity, multiqc,
-         quantify_isoquant, build_splice_matrices, qc_splice_proportion)
+         quantify_isoquant, build_splice_matrices, qc_splice_proportion,
+         generate_isoquant_report)
 def full():
     """
     Run the complete pipeline including alignment, FLAMES quantification,
@@ -871,10 +925,18 @@ def quantify():
     pass
 
 
-@follows(qc_nanoplot, summarize_barcodes, multiqc)
+@follows(qc_nanoplot, summarize_barcodes, multiqc, generate_isoquant_report)
 def qc():
     """
-    Run QC only.
+    Run QC only, including IsoQuant static HTML report generation.
+    """
+    pass
+
+
+@follows(generate_isoquant_report)
+def isoquant_report():
+    """
+    Generate IsoQuant QC HTML reports only (requires splice matrices upstream).
     """
     pass
 

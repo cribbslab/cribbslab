@@ -1,7 +1,8 @@
 name: sclong
 
 # Environment for pipeline_sclong: 10x Genomics single-cell long-read
-# (ONT) RNA-seq analysis (BLAZE -> minimap2 -> FLAMES + featureCounts).
+# (ONT) RNA-seq analysis (BLAZE -> minimap2 -> FLAMES + IsoQuant + featureCounts).
+# Includes the IsoQuant QC Streamlit report app (isoquant_report/).
 #
 # Platform note: several Bioconductor packages used here (e.g.
 # bioconductor-flames, bioconductor-singlecellexperiment) are only built for
@@ -51,3 +52,10 @@ dependencies:
 - isoquant
 - anndata
 - scipy
+# IsoQuant QC report app (Streamlit + headless HTML export)
+- streamlit
+- plotly
+- python-kaleido
+- scanpy
+- jinja2
+- pytest

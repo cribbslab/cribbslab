@@ -1,0 +1,4 @@
+barcode	total_umis	spliced_umis	unspliced_umis	ambiguous_umis	unspliced_fraction	n_genes
+AAACCC	10	7	2	1	0.2	2
+TTTGGG	8	4	3	1	0.375	2
+GGGAAA	5	2	2	1	0.4	1

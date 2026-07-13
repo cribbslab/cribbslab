@@ -1,0 +1,20 @@
+# Example configuration for the IsoQuant QC report app.
+# Copy and edit paths for your sample, or let the pipeline write this file.
+
+sample: SAMPLE
+isoquant_dir: /path/to/isoquant/SAMPLE/SAMPLE
+gene_h5ad: /path/to/splice_matrices/SAMPLE.gene.h5ad
+transcript_h5ad: /path/to/splice_matrices/SAMPLE.transcript.spliced.h5ad
+barcode_qc: /path/to/splice_matrices/SAMPLE.barcode_qc.tsv
+
+# QC metric prefixes
+mito_prefix: MT-
+ribo_prefixes:
+  - RPS
+  - RPL
+
+# Default interactive QC thresholds (overridden in sidebar)
+min_counts: 500
+min_genes: 200
+max_mito: 0.2
+max_unspliced_fraction: 0.95
