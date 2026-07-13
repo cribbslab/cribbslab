@@ -683,7 +683,10 @@ def build_splice_matrices(infile, outfile):
         os.path.join(os.path.dirname(__file__), "python"))
 
     sample = os.path.basename(os.path.dirname(infile))
-    isoquant_dir = os.path.dirname(infile)
+    # IsoQuant writes output into a subdirectory named after the sample prefix
+    # (-p) inside the -o directory, so the count files are at
+    # isoquant/{sample}/{sample}/ not isoquant/{sample}/
+    isoquant_dir = os.path.join(os.path.dirname(infile), sample)
     outdir = os.path.dirname(outfile)
     tolerance = PARAMS.get("isoquant_reconcile_tolerance", 0.01)
 
