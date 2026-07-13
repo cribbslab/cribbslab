@@ -79,51 +79,57 @@ def find_grouped_counts(isoquant_dir, sample, feature):
     Locate IsoQuant barcode-grouped count files for a given feature type
     ('gene' or 'transcript').
 
+    IsoQuant names these files with the '_grouped_barcode_counts' infix when
+    run in single-cell mode (--barcoded_bam / --barcoded_reads). The older
+    '_grouped_counts' infix is also tried as a fallback for bulk-mode runs.
+
     Preference order:
-      1. MTX trio: {sample}.{feature}_grouped_counts.matrix.mtx +
-                   {sample}.{feature}_grouped_counts.features.tsv +
-                   {sample}.{feature}_grouped_counts.barcodes.tsv
-      2. Linear TSV: {sample}.{feature}_grouped_counts.linear.tsv
-      3. Wide matrix TSV: {sample}.{feature}_grouped_counts.tsv
+      1. MTX trio: {sample}.{feature}_grouped_barcode_counts.matrix.mtx
+                   + .features.tsv + .barcodes.tsv
+      2. Linear TSV: {sample}.{feature}_grouped_barcode_counts.linear.tsv
+      3. Fallback (bulk/older SC): {sample}.{feature}_grouped_counts.* variants
 
     Returns ('mtx', mtx_path, features_path, barcodes_path) or
             ('linear', linear_path) or ('tsv', tsv_path) or raises.
     """
-    mtx_path = _find_file(
-        isoquant_dir,
-        [
-            "{}.{}_grouped_counts.matrix.mtx".format(sample, feature),
-            "*.{}_grouped_counts.matrix.mtx".format(feature),
-        ],
-    )
-    if mtx_path:
-        feat_path = mtx_path.replace(".matrix.mtx", ".features.tsv")
-        bc_path = mtx_path.replace(".matrix.mtx", ".barcodes.tsv")
-        if os.path.exists(feat_path) and os.path.exists(bc_path):
-            return ("mtx", mtx_path, feat_path, bc_path)
+    # SC mode uses _grouped_barcode_counts; try that first, then legacy names
+    for infix in ("_grouped_barcode_counts", "_grouped_counts"):
+        mtx_path = _find_file(
+            isoquant_dir,
+            [
+                "{}.{}{}.matrix.mtx".format(sample, feature, infix),
+                "*.{}{}.matrix.mtx".format(feature, infix),
+            ],
+        )
+        if mtx_path:
+            feat_path = mtx_path.replace(".matrix.mtx", ".features.tsv")
+            bc_path = mtx_path.replace(".matrix.mtx", ".barcodes.tsv")
+            if os.path.exists(feat_path) and os.path.exists(bc_path):
+                return ("mtx", mtx_path, feat_path, bc_path)
 
-    linear_path = _find_file(
-        isoquant_dir,
-        [
-            "{}.{}_grouped_counts.linear.tsv".format(sample, feature),
-            "*.{}_grouped_counts.linear.tsv".format(feature),
-        ],
-    )
-    if linear_path:
-        return ("linear", linear_path)
+        linear_path = _find_file(
+            isoquant_dir,
+            [
+                "{}.{}{}.linear.tsv".format(sample, feature, infix),
+                "*.{}{}.linear.tsv".format(feature, infix),
+            ],
+        )
+        if linear_path:
+            return ("linear", linear_path)
 
-    tsv_path = _find_file(
-        isoquant_dir,
-        [
-            "{}.{}_grouped_counts.tsv".format(sample, feature),
-            "*.{}_grouped_counts.tsv".format(feature),
-        ],
-    )
-    if tsv_path:
-        return ("tsv", tsv_path)
+        tsv_path = _find_file(
+            isoquant_dir,
+            [
+                "{}.{}{}.tsv".format(sample, feature, infix),
+                "*.{}{}.tsv".format(feature, infix),
+            ],
+        )
+        if tsv_path:
+            return ("tsv", tsv_path)
 
     raise FileNotFoundError(
-        "No {}_grouped_counts file found in {}".format(feature, isoquant_dir)
+        "No {}_grouped_barcode_counts (or _grouped_counts) file found in "
+        "{}".format(feature, isoquant_dir)
     )
 
 
@@ -131,8 +137,10 @@ def find_read_info(isoquant_dir, sample):
     """
     Locate the per-read assignment file.
 
-    Prefer read_info.tsv(.gz) (newer IsoQuant; has native barcode/umi cols).
-    Fall back to read_assignments.tsv(.gz) (older; join barcode via allinfo).
+    Newer IsoQuant produces read_info.tsv(.gz) with native barcode/umi cols.
+    Older releases (and the current --barcoded_bam path observed in the wild)
+    produce read_assignments.tsv(.gz) without native barcode cols; barcodes
+    are recovered from the UMI_filtered allinfo file instead.
 
     Returns (path, format_name) where format_name is 'read_info' or
     'read_assignments'.
@@ -153,6 +161,7 @@ def find_read_info(isoquant_dir, sample):
     ]:
         path = _find_file(isoquant_dir, patterns)
         if path:
+            log.info("Found per-read file (%s): %s", fmt, path)
             return path, fmt
     raise FileNotFoundError(
         "No read_info or read_assignments file found in {}".format(isoquant_dir)
@@ -161,17 +170,28 @@ def find_read_info(isoquant_dir, sample):
 
 def find_allinfo(isoquant_dir):
     """
-    Locate the UMI-filtered allinfo file (post-dedup read set).
+    Locate the UMI-filtered allinfo file (post-dedup representative reads).
+
+    This file carries barcode and umi columns and is the authoritative source
+    for which reads survived UMI deduplication. It is always present when
+    IsoQuant runs in single-cell mode (--barcoded_bam / --barcoded_reads).
 
     Returns path or None if absent.
     """
-    return _find_file(
+    path = _find_file(
         isoquant_dir,
         [
             "*.UMI_filtered.ED*.allinfo.gz",
             "*.UMI_filtered.ED*.allinfo",
         ],
     )
+    if path:
+        log.info("Found allinfo file: %s", path)
+    else:
+        log.warning("No UMI_filtered allinfo file found in %s. "
+                    "Barcode/UMI join will not be available for "
+                    "read_assignments format.", isoquant_dir)
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -265,18 +285,23 @@ def load_read_labels(path, fmt, allinfo_path=None):
     """
     log.info("Loading per-read assignments (%s): %s", fmt, path)
 
+    # IsoQuant headers often start with '#'. Read the first line to get
+    # column names, then load the body with header=None and names= so that
+    # comment="#" does not accidentally discard the header row.
     with _open(path) as fh:
-        header = fh.readline().lstrip("#").strip().split("\t")
+        first_line = fh.readline()
+    col_names = first_line.lstrip("#").strip().split("\t")
 
     df = pd.read_csv(
-        path, sep="\t", comment="#",
-        header=0 if header[0] not in ("read_id",) else None,
-        names=None,
+        path, sep="\t",
+        header=None,
+        names=col_names,
+        skiprows=1,
         dtype=str,
         low_memory=False,
     )
 
-    # Normalise column names (strip leading #/whitespace)
+    # Normalise column names (strip any residual leading #/whitespace)
     df.columns = [c.lstrip("#").strip() for c in df.columns]
 
     log.info("Read assignment columns: %s", list(df.columns))
@@ -284,17 +309,11 @@ def load_read_labels(path, fmt, allinfo_path=None):
     if fmt == "read_info":
         df = _normalise_read_info(df)
     else:
+        # _normalise_read_assignments joins allinfo to add barcode/umi.
+        # The allinfo file only contains post-dedup representative reads,
+        # so non-surviving reads receive NaN barcode/umi and are dropped
+        # naturally by collapse_to_molecules. No second filter needed.
         df = _normalise_read_assignments(df, allinfo_path)
-
-    # Restrict to post-dedup set if allinfo is available
-    if allinfo_path and fmt == "read_assignments":
-        surviving = _load_allinfo_read_ids(allinfo_path)
-        before = len(df)
-        df = df[df["read_id"].isin(surviving)]
-        log.info(
-            "Restricted to post-dedup reads via allinfo: %d -> %d rows",
-            before, len(df),
-        )
 
     # Label each read
     df["label"] = "ambiguous"
@@ -306,11 +325,12 @@ def load_read_labels(path, fmt, allinfo_path=None):
     df.loc[spliced_mask, "label"] = "spliced"
     df.loc[ir_mask & ~spliced_mask, "label"] = "unspliced"
 
+    n_spliced = spliced_mask.sum()
+    n_unspliced = (ir_mask & ~spliced_mask).sum()
+    n_ambiguous = len(df) - n_spliced - n_unspliced
     log.info(
-        "Label counts: spliced=%d unspliced=%d ambiguous=%d",
-        spliced_mask.sum(),
-        (ir_mask & ~spliced_mask).sum(),
-        (~spliced_mask & ~(ir_mask & ~spliced_mask)).sum(),
+        "Label counts (all reads): spliced=%d unspliced=%d ambiguous=%d",
+        n_spliced, n_unspliced, n_ambiguous,
     )
 
     return df
@@ -654,6 +674,8 @@ def _load_tx_gene_map(isoquant_dir, sample):
             "*.read_assignments.tsv",
         ],
     )
+    if path:
+        log.info("Building tx->gene map from: %s", path)
     if not path:
         return {}
 
