@@ -193,6 +193,11 @@ def build_all_figures(data: ReportData) -> dict[str, go.Figure]:
         figs["exon_count"] = histogram(
             data.gtf_models, "exon_count", "Exon count per transcript"
         )
+        nk_gtf = _novelty_from_gtf(data.gtf_models)
+        if not nk_gtf.empty and nk_gtf["count"].sum() > 0:
+            figs["model_novelty"] = pie_proportions(
+                nk_gtf, "class", "count", "Transcript models: novel vs known"
+            )
 
     if data.allinfo is not None:
         sat_u = umi_saturation_curve(data.allinfo)
@@ -200,7 +205,224 @@ def build_all_figures(data: ReportData) -> dict[str, go.Figure]:
             sat_u, "fraction_umis", "n_genes", "UMI saturation"
         )
 
+    # ---- Splice / unspliced QC ------------------------------------------
+    if data.barcode_qc is not None and not data.barcode_qc.empty:
+        bq = data.barcode_qc
+        if "unspliced_fraction" in bq.columns:
+            figs["unspliced_fraction_hist"] = histogram(
+                bq, "unspliced_fraction", "Unspliced fraction per cell"
+            )
+        if {"spliced_umis", "unspliced_umis"} <= set(bq.columns):
+            figs["spliced_vs_unspliced"] = scatter_xy(
+                bq,
+                "spliced_umis",
+                "unspliced_umis",
+                "Spliced vs unspliced UMIs per cell",
+            )
+        comp_cols = [
+            c
+            for c in ("spliced_umis", "unspliced_umis", "ambiguous_umis")
+            if c in bq.columns
+        ]
+        if comp_cols:
+            comp = pd.DataFrame(
+                {
+                    "class": [c.replace("_umis", "") for c in comp_cols],
+                    "umis": [float(bq[c].sum()) for c in comp_cols],
+                }
+            )
+            figs["splice_composition"] = pie_proportions(
+                comp, "class", "umis", "Global splice composition (UMIs)"
+            )
+
+    # ---- Top expressed features -----------------------------------------
+    if data.gene_adata is not None:
+        tg = _top_features(data.gene_adata, n=20)
+        if not tg.empty:
+            figs["top_genes"] = bar_counts(
+                tg, "feature", "total_counts", "Top 20 genes by total UMIs"
+            )
+    if data.transcript_adata is not None:
+        ti = _top_features(data.transcript_adata, n=20)
+        if not ti.empty:
+            figs["top_isoforms"] = bar_counts(
+                ti, "feature", "total_counts", "Top 20 isoforms by total UMIs"
+            )
+
     return figs
+
+
+def _top_features(adata: ad.AnnData, n: int = 20) -> pd.DataFrame:
+    """Return the top-n features by summed counts across cells."""
+    try:
+        X = adata.X
+        totals = np.asarray(X.sum(axis=0)).flatten()
+    except Exception:
+        return pd.DataFrame(columns=["feature", "total_counts"])
+    if totals.size == 0:
+        return pd.DataFrame(columns=["feature", "total_counts"])
+    order = np.argsort(totals)[::-1][:n]
+    return pd.DataFrame(
+        {
+            "feature": np.asarray(adata.var_names)[order],
+            "total_counts": totals[order],
+        }
+    )
+
+
+def _novelty_from_gtf(gtf_models: pd.DataFrame) -> pd.DataFrame:
+    """Classify transcript models as known (Ensembl) vs novel by ID prefix."""
+    if gtf_models is None or gtf_models.empty:
+        return pd.DataFrame(columns=["class", "count"])
+    tid = gtf_models["transcript_id"].astype(str)
+    is_known = tid.str.upper().str.startswith("ENS")
+    n_known = int(is_known.sum())
+    n_novel = int((~is_known).sum())
+    return pd.DataFrame(
+        {"class": ["known", "novel"], "count": [n_known, n_novel]}
+    )
+
+
+def _fmt(value: Any) -> Any:
+    """Format numbers for display tables."""
+    if isinstance(value, float):
+        if np.isnan(value):
+            return "n/a"
+        if abs(value) >= 1000:
+            return f"{value:,.0f}"
+        return f"{value:,.3g}"
+    if isinstance(value, (int, np.integer)):
+        return f"{int(value):,}"
+    return value
+
+
+def build_summary_tables(data: ReportData) -> dict[str, pd.DataFrame]:
+    """Build human-readable summary tables to accompany the figures."""
+    tables: dict[str, pd.DataFrame] = {}
+    cfg = data.config
+
+    # --- Assignment types ------------------------------------------------
+    if data.assignments is not None:
+        try:
+            at = assignment_type_summary(data.assignments)
+            if not at.empty:
+                at = at.copy()
+                at["percent"] = (100 * at["count"] / at["count"].sum()).round(2)
+                tables["Assignment types"] = at
+        except Exception as exc:
+            data.errors.append(f"table assignment_types: {exc}")
+        try:
+            sc = structural_category_summary(data.assignments)
+            if not sc.empty:
+                sc = sc.copy()
+                sc["percent"] = (100 * sc["proportion"]).round(2)
+                tables["Structural categories"] = sc[["category", "percent"]]
+        except Exception:
+            pass
+
+    # --- Cell QC summary -------------------------------------------------
+    if data.gene_qc_adata is not None:
+        try:
+            obs = data.gene_qc_adata.obs
+            mask = apply_qc_filters(
+                data.gene_qc_adata,
+                cfg.min_counts,
+                cfg.min_genes,
+                cfg.max_mito,
+                cfg.max_unspliced_fraction,
+                data.barcode_qc,
+            )
+            n_total = int(len(mask))
+            n_pass = int(mask.sum())
+            rows = [
+                ("Cells (called barcodes)", _fmt(n_total)),
+                (
+                    "Cells passing QC filters",
+                    f"{n_pass:,} ({100 * n_pass / max(n_total, 1):.1f}%)",
+                ),
+                ("Cells failing QC filters", _fmt(n_total - n_pass)),
+            ]
+            if "total_counts" in obs:
+                rows.append(("Median UMIs / cell", _fmt(float(obs["total_counts"].median()))))
+            if "n_genes_by_counts" in obs:
+                rows.append(("Median genes / cell", _fmt(float(obs["n_genes_by_counts"].median()))))
+            if "pct_counts_mt" in obs:
+                rows.append(("Median % mito", _fmt(float(obs["pct_counts_mt"].median()))))
+            if "pct_counts_ribo" in obs:
+                rows.append(("Median % ribo", _fmt(float(obs["pct_counts_ribo"].median()))))
+            rows += [
+                ("Threshold: min UMIs", _fmt(cfg.min_counts)),
+                ("Threshold: min genes", _fmt(cfg.min_genes)),
+                ("Threshold: max mito fraction", _fmt(cfg.max_mito)),
+                ("Threshold: max unspliced fraction", _fmt(cfg.max_unspliced_fraction)),
+            ]
+            tables["Cell QC summary"] = pd.DataFrame(rows, columns=["metric", "value"])
+        except Exception as exc:
+            data.errors.append(f"table cell_qc: {exc}")
+
+    # --- Splice summary --------------------------------------------------
+    if data.barcode_qc is not None and not data.barcode_qc.empty:
+        try:
+            bq = data.barcode_qc
+            rows = []
+            for col, label in [
+                ("spliced_umis", "Total spliced UMIs"),
+                ("unspliced_umis", "Total unspliced UMIs"),
+                ("ambiguous_umis", "Total ambiguous UMIs"),
+                ("total_umis", "Total UMIs"),
+            ]:
+                if col in bq.columns:
+                    rows.append((label, _fmt(float(bq[col].sum()))))
+            if "unspliced_fraction" in bq.columns:
+                rows.append(
+                    ("Median unspliced fraction", _fmt(float(bq["unspliced_fraction"].median())))
+                )
+                rows.append(
+                    ("Mean unspliced fraction", _fmt(float(bq["unspliced_fraction"].mean())))
+                )
+            if rows:
+                tables["Splice summary"] = pd.DataFrame(rows, columns=["metric", "value"])
+        except Exception as exc:
+            data.errors.append(f"table splice: {exc}")
+
+    # --- Isoform structure ----------------------------------------------
+    if data.gtf_models is not None and not data.gtf_models.empty:
+        try:
+            gm = data.gtf_models
+            nk = _novelty_from_gtf(gm)
+            if not nk.empty and nk["count"].sum() > 0:
+                nk = nk.copy()
+                nk["percent"] = (100 * nk["count"] / nk["count"].sum()).round(2)
+                tables["Transcript models (novel vs known)"] = nk
+            rows = [
+                ("Transcript models", _fmt(int(gm["transcript_id"].nunique()))),
+                ("Genes with models", _fmt(int(gm["gene_id"].nunique()))),
+                ("Median transcript length (bp)", _fmt(float(gm["length"].median()))),
+                ("Median exons / transcript", _fmt(float(gm["exon_count"].median()))),
+                ("Mono-exonic transcripts", _fmt(int((gm["exon_count"] == 1).sum()))),
+            ]
+            tables["Isoform structure"] = pd.DataFrame(rows, columns=["metric", "value"])
+        except Exception as exc:
+            data.errors.append(f"table isoform_structure: {exc}")
+
+    # --- Reconciliation --------------------------------------------------
+    if data.reconcile is not None:
+        try:
+            r = data.reconcile
+            rows = [
+                ("Cells (native / derived)", f"{r.n_cells_native:,} / {r.n_cells_derived:,}"),
+                ("Cell overlap", _fmt(r.n_cells_overlap)),
+                ("Cell Jaccard", _fmt(round(r.cell_jaccard, 3))),
+                ("Features (native / derived)", f"{r.n_features_native:,} / {r.n_features_derived:,}"),
+                ("Feature Jaccard", _fmt(round(r.feature_jaccard, 3))),
+                ("Total-count correlation", _fmt(round(r.total_count_correlation, 3))),
+                ("Mean abs. relative diff", _fmt(round(r.mean_abs_rel_diff, 3))),
+            ]
+            tables["Matrix reconciliation"] = pd.DataFrame(rows, columns=["metric", "value"])
+        except Exception as exc:
+            data.errors.append(f"table reconcile: {exc}")
+
+    return tables
 
 
 def headline_metrics(data: ReportData) -> dict[str, Any]:
