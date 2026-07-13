@@ -47,3 +47,7 @@ dependencies:
 - bioconductor-genomicalignments
 - bioconductor-genomicfeatures
 - bioconductor-txdbmaker   # makeTxDbFromGFF (Bioconductor >= 3.19)
+# IsoQuant and Python matrix helpers
+- isoquant
+- anndata
+- scipy

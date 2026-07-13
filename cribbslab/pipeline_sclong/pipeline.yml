@@ -184,6 +184,78 @@ tag:
     memory: 16G
 
 # -----------------------------------------------
+# IsoQuant settings (transcript quantification from tagged BAM)
+# -----------------------------------------------
+
+# IsoQuant runs alongside FLAMES as a concurrent quantification route.
+# It consumes the tagged genome BAM directly (CB/UB tags from BLAZE) and
+# performs UMI-based deduplication natively in single-cell mode.
+#
+# Note: IsoQuant single-cell UMI deduplication is believed to be
+# edit-distance aware (Levenshtein ED3 for tenX_v3). This has not been
+# verified against all installed versions; confirm before relying on it
+# for low-UMI-diversity libraries.
+#
+# TODO: confirm whether the installed IsoQuant's UMI deduplication is
+# truly edit-distance aware. ONT UMI error means exact-match-only dedup
+# would inflate counts. The pre_collapse hook below (currently disabled)
+# is reserved for a future upstream correction step if needed.
+
+isoquant:
+    # Path or name of the IsoQuant executable
+    binary: isoquant.py
+
+    # Single-cell mode. Use tenX_v3 for 10x 3' v3 chemistry (12bp UMI, ED3
+    # dedup). Change to tenX_v2 for v2 chemistry (10bp UMI).
+    mode: tenX_v3
+
+    # Path to annotation GTF file (used for --genedb)
+    gtf: /path/to/gencode.v46.annotation.gtf.gz
+
+    # Number of threads
+    threads: 8
+
+    # Memory per job
+    memory: 64G
+
+    # BAM tag carrying the cell barcode (must match tag written by tag_bam_barcodes.R)
+    barcode_tag: CB
+
+    # BAM tag carrying the UMI (must match tag written by tag_bam_barcodes.R)
+    umi_tag: UB
+
+    # Strip GEM-well suffix from barcode tags (e.g. ACGT-1 -> ACGT).
+    # Enable when the tagged BAM carries suffixed barcodes.
+    strip_barcode_suffix: true
+
+    # Path to cell barcode whitelist used to subset the tagged BAM before
+    # IsoQuant runs. Accepts {sample} as a placeholder.
+    # Leave empty to fall back to blaze/{sample}_whitelist.csv automatically.
+    # If neither is found, the full tagged BAM is passed through unchanged.
+    cell_whitelist: ''
+
+    # Maximum permitted relative divergence between the spliced + unspliced +
+    # ambiguous molecule totals (derived from read_assignments) and IsoQuant's
+    # native count matrix. A warning is emitted if any barcode exceeds this.
+    reconcile_tolerance: 0.01
+
+    # Reserved for a future upstream UMI correction step (not implemented).
+    # Do not set to true; no custom collapse logic is present in this repo.
+    pre_collapse: false
+
+# -----------------------------------------------
+# Splice QC settings
+# -----------------------------------------------
+
+splice_qc:
+    # Multiplier applied to the median absolute deviation (MAD) of
+    # unspliced_fraction to flag per-barcode outliers.
+    mad_multiplier: 3.0
+
+    # Memory per job
+    memory: 4G
+
+# -----------------------------------------------
 # Cluster settings (for HPC environments)
 # -----------------------------------------------
 

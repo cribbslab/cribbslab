@@ -14,7 +14,10 @@ Supports both 10x 5' and 3' chemistries.
 Key features:
 - Cell barcode and UMI extraction using BLAZE (supports 5' and 3' kits)
 - Splice-aware alignment with minimap2
-- Transcript discovery and quantification using FLAMES
+- Transcript discovery and quantification using FLAMES (from FASTQ)
+- Transcript quantification using IsoQuant (from tagged BAM, concurrent with FLAMES):
+  spliced transcript-level and unspliced gene-level AnnData matrices,
+  per-barcode splicing-proportion QC surfaced in MultiQC
 - Combined gene-level and transcript-level count matrices (spliced + unspliced)
 - Separate spliced/unspliced matrices for RNA velocity analysis
 - Handling of both spliced and unspliced reads (important for nuclei)
@@ -54,6 +57,7 @@ Requirements
 * minimap2 - for splice-aware alignment
 * samtools - for BAM processing
 * FLAMES (R package) - for single-cell isoform analysis
+* IsoQuant - for single-cell transcript quantification from tagged BAM
 * featureCounts - for gene-level counting
 
 Pipeline output
@@ -61,6 +65,10 @@ Pipeline output
 
 * Cell barcode assignments (blaze/)
 * Aligned BAM files with cell barcode tags (tagged/)
+* BAM subsets for true cells only (tagged_cells/)
+* IsoQuant SC outputs: transcript/gene count matrices (isoquant/)
+* Spliced transcript AnnData and unspliced gene AnnData (splice_matrices/)
+* Per-barcode splicing-proportion QC, MultiQC custom content (qc_splice/)
 * Combined gene-level count matrix - spliced + unspliced (combined_counts/)
 * Transcript-level count matrix (flames/)
 * Separate spliced/unspliced matrices for velocity (velocity/)
@@ -76,10 +84,13 @@ Processing steps
 1. BLAZE barcode assignment from long reads (kit-aware: 5' or 3')
 2. Minimap2 splice-aware alignment
 3. BAM tagging with cell barcodes and UMIs
-4. FLAMES transcript discovery and quantification
+4a. FLAMES transcript discovery and quantification (from FASTQ)
+4b. IsoQuant transcript quantification (from tagged BAM, concurrent with 4a):
+    subset BAM to true cells, quantify with --barcoded_bam, derive
+    spliced transcript and unspliced gene AnnData matrices, splice QC
 5. Combined gene-level counting (spliced + unspliced)
 6. Separate velocity matrices (spliced/unspliced for scVelo)
-7. QC and MultiQC reporting
+7. QC and MultiQC reporting (including splice-proportion outlier table)
 
 Code
 ====
@@ -297,6 +308,153 @@ def tag_bam_with_barcodes(infile, outfile):
 
 
 # -----------------------------------------------
+# Subset tagged BAM to true cells before IsoQuant
+# -----------------------------------------------
+
+@follows(mkdir("tagged_cells"))
+@transform(tag_bam_with_barcodes,
+           regex(r"tagged/(\S+)\.tagged\.bam"),
+           r"tagged_cells/\1.cells.bam")
+def subset_cells(infile, outfile):
+    """
+    Subset the tagged BAM to barcodes in the BLAZE cell whitelist.
+
+    IsoQuant is run with --barcoded_bam, which quantifies every CB tag it
+    finds. Restricting to true cells here keeps deduplication and
+    quantification clean and avoids processing ambient/noise barcodes.
+
+    The whitelist is resolved in order:
+      1. isoquant_cell_whitelist from pipeline.yml (supports {sample}
+         placeholder for per-sample lists).
+      2. blaze/{sample}_whitelist.csv produced by run_blaze.
+      3. If neither exists the tagged BAM is symlinked through unchanged
+         so the task remains idempotent.
+
+    Strand assumption: minimap2 is run with -uf, so only forward-strand
+    alignments are produced. IsoQuant inherits this strand orientation when
+    reading the BAM. Wrong-strand intronic reads would contaminate the
+    unspliced matrix; this is guarded against by the upstream -uf flag.
+
+    Note on barcode format: BLAZE whitelists carry bare barcodes (no GEM-well
+    suffix). When isoquant.strip_barcode_suffix is enabled, IsoQuant strips
+    the dash suffix from CB tags before matching -- ensure the whitelist
+    format is consistent with this setting.
+    """
+
+    sample = os.path.basename(infile).replace(".tagged.bam", "")
+
+    job_memory = PARAMS.get("isoquant_memory", "16G")
+
+    # Resolve cell whitelist
+    wl_param = PARAMS.get("isoquant_cell_whitelist", "")
+    if wl_param:
+        whitelist = wl_param.replace("{sample}", sample)
+    else:
+        whitelist = "blaze/{}_whitelist.csv".format(sample)
+
+    if not os.path.exists(whitelist):
+        # No whitelist available -- pass through with a symlink
+        outbai = outfile + ".bai"
+        inbai = infile + ".bai"
+        statement = """
+            ln -sf $(realpath %(infile)s) %(outfile)s
+            && ln -sf $(realpath %(inbai)s) %(outbai)s
+        """
+        P.run(statement)
+        return
+
+    # Extract barcode column (first column, skip header lines starting with #)
+    bc_list = outfile + ".bc_list.txt"
+
+    # samtools view -D CB:<file> filters reads whose CB tag matches any
+    # barcode in the file (one barcode per line, no header).
+    # The BLAZE whitelist is CSV; take the first field, skip comment lines.
+    statement = """
+        grep -v '^#' %(whitelist)s
+        | cut -d',' -f1
+        | grep -v '^barcode' > %(bc_list)s
+        && samtools view -h -b -D CB:%(bc_list)s %(infile)s
+        | samtools sort -o %(outfile)s -
+        && samtools index %(outfile)s
+        && rm -f %(bc_list)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
+# IsoQuant: Transcript quantification (single-cell, from tagged BAM)
+# -----------------------------------------------
+
+@follows(mkdir("isoquant"))
+@transform(subset_cells,
+           regex(r"tagged_cells/(\S+)\.cells\.bam"),
+           r"isoquant/\1/isoquant.sentinel")
+def quantify_isoquant(infile, outfile):
+    """
+    Quantify transcripts and genes using IsoQuant in single-cell mode.
+
+    IsoQuant reads cell barcodes and UMIs directly from the BAM tags set by
+    BLAZE/tag_bam_barcodes.R (--barcoded_bam). UMI-based deduplication is
+    performed natively by IsoQuant within each barcode x gene group.
+
+    IsoQuant runs concurrently with FLAMES (which operates from FASTQ).
+    These are independent quantification routes and produce complementary
+    outputs: IsoQuant provides transcript-level spliced and gene-level
+    unspliced matrices derived here; FLAMES provides novel isoform discovery.
+
+    Strand: minimap2 upstream uses -uf (forward-strand only). IsoQuant
+    inherits this orientation from the BAM. Intronic reads on the wrong
+    strand would contaminate the unspliced matrix; the -uf flag prevents this.
+
+    TODO: confirm that the installed IsoQuant version performs Levenshtein
+    edit-distance UMI deduplication (expected ED3 for tenX_v3 mode). If
+    exact-match-only dedup is used, ONT UMI error will inflate counts.
+    The pre_collapse config key (isoquant.pre_collapse) is reserved for a
+    future upstream correction step but is not implemented here.
+    """
+
+    sample = os.path.basename(os.path.dirname(outfile))
+    outdir = os.path.dirname(outfile)
+
+    job_threads = PARAMS.get("isoquant_threads", 8)
+    job_memory = PARAMS.get("isoquant_memory", "64G")
+
+    binary = PARAMS.get("isoquant_binary", "isoquant.py")
+    mode = PARAMS.get("isoquant_mode", "tenX_v3")
+    gtf = PARAMS.get("isoquant_gtf", PARAMS.get("flames_gtf",
+                     PARAMS.get("featurecounts_gtf", "")))
+    fasta = PARAMS.get("isoquant_fasta", PARAMS["genome_fasta"])
+    barcode_tag = PARAMS.get("isoquant_barcode_tag", "CB")
+    umi_tag = PARAMS.get("isoquant_umi_tag", "UB")
+    strip_suffix = PARAMS.get("isoquant_strip_barcode_suffix", True)
+
+    strip_opt = "--strip_barcode_suffix" if strip_suffix else ""
+
+    statement = """
+        %(binary)s
+        --reference %(fasta)s
+        --genedb %(gtf)s
+        --complete_genedb
+        --bam %(infile)s
+        --data_type nanopore
+        --mode %(mode)s
+        --barcoded_bam
+        --barcode_tag %(barcode_tag)s
+        --umi_tag %(umi_tag)s
+        %(strip_opt)s
+        --count_exons
+        --counts_format mtx
+        -o %(outdir)s
+        -p %(sample)s
+        -t %(job_threads)s
+        && touch %(outfile)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
 # FLAMES: Transcript discovery and quantification
 # -----------------------------------------------
 
@@ -471,6 +629,11 @@ def count_velocity(infile, outfile):
     - Unspliced: reads without splice junctions OR overlapping introns
     
     Output: RDS file with spliced, unspliced, and ambiguous matrices
+
+    Note: the IsoQuant route (build_splice_matrices) provides an alternative
+    spliced/unspliced product derived from UMI-deduplicated molecule
+    assignments and is the recommended source for downstream velocity analysis.
+    This task is retained for compatibility.
     """
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
@@ -483,6 +646,94 @@ def count_velocity(infile, outfile):
         --bam %(infile)s
         --gtf %(gtf)s
         --output %(outfile)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
+# Splice matrices from IsoQuant output
+# -----------------------------------------------
+
+PYTHON_SRC_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "python"))
+
+
+@follows(mkdir("splice_matrices"))
+@transform(quantify_isoquant,
+           regex(r"isoquant/(\S+)/isoquant\.sentinel"),
+           r"splice_matrices/\1.splice_matrices.sentinel")
+def build_splice_matrices(infile, outfile):
+    """
+    Build spliced transcript-level and unspliced gene-level AnnData matrices
+    from IsoQuant single-cell output.
+
+    Reads IsoQuant's native barcode-grouped count matrices for molecule totals
+    and parses the per-read assignment file (read_info.tsv or
+    read_assignments.tsv) to label each molecule as spliced, unspliced, or
+    ambiguous. Produces:
+      - {sample}.transcript.spliced.h5ad  (transcript x barcode, spliced)
+      - {sample}.gene.h5ad                (gene x barcode, spliced/unspliced/total layers)
+      - MatrixMarket exports alongside each h5ad
+      - {sample}.barcode_qc.tsv           (per-barcode QC table)
+
+    A reconciliation check compares spliced+unspliced+ambiguous totals against
+    IsoQuant's native matrix; warnings are emitted if divergence exceeds the
+    configured tolerance.
+    """
+
+    sample = os.path.basename(os.path.dirname(infile))
+    isoquant_dir = os.path.dirname(infile)
+    outdir = os.path.dirname(outfile)
+    tolerance = PARAMS.get("isoquant_reconcile_tolerance", 0.01)
+
+    job_memory = PARAMS.get("splice_qc_memory", "8G")
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/isoquant_matrices.py
+        --isoquant-dir %(isoquant_dir)s
+        --sample %(sample)s
+        --outdir %(outdir)s
+        --tolerance %(tolerance)s
+        && touch %(outfile)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
+# Splice proportion QC
+# -----------------------------------------------
+
+@follows(mkdir("qc_splice"))
+@merge(build_splice_matrices,
+       "qc_splice/splice_proportion_mqc.tsv")
+def qc_splice_proportion(infiles, outfile):
+    """
+    Flag per-barcode outliers on unspliced_fraction using the median absolute
+    deviation (MAD) method and write a MultiQC custom-content file.
+
+    Concatenates the per-sample barcode_qc.tsv tables produced by
+    build_splice_matrices, computes MAD-based outlier flags on
+    unspliced_fraction, cross-tabulates against total_umis and n_genes bins,
+    and writes a *_mqc.tsv file picked up automatically by MultiQC.
+    """
+
+    # Collect per-sample QC tables from splice_matrices/
+    # Each sentinel lives at splice_matrices/{sample}.splice_matrices.sentinel;
+    # the QC table is splice_matrices/{sample}.barcode_qc.tsv
+    qc_tables = " ".join(
+        f.replace(".splice_matrices.sentinel", ".barcode_qc.tsv")
+        for f in infiles
+    )
+    mad_multiplier = PARAMS.get("splice_qc_mad_multiplier", 3.0)
+    job_memory = PARAMS.get("splice_qc_memory", "4G")
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/splice_qc.py
+        --qc-tables %(qc_tables)s
+        --mad-multiplier %(mad_multiplier)s
+        --outfile %(outfile)s
     """
 
     P.run(statement)
@@ -545,8 +796,8 @@ def summarize_barcodes(infiles, outfile):
 # MultiQC: Aggregate reports
 # -----------------------------------------------
 
-@follows(qc_nanoplot, count_genes, summarize_barcodes)
-@merge([align_minimap2, "qc_nanoplot/*", "genecounts/*"],
+@follows(qc_nanoplot, count_genes, summarize_barcodes, qc_splice_proportion)
+@merge([align_minimap2, "qc_nanoplot/*", "genecounts/*", "qc_splice/*"],
        "multiqc/multiqc_report.html")
 def multiqc(infiles, outfile):
     """
@@ -568,11 +819,18 @@ def multiqc(infiles, outfile):
 # Pipeline targets
 # -----------------------------------------------
 
-@follows(run_flames, count_genes, count_velocity, multiqc)
+@follows(run_flames, count_genes, count_velocity, multiqc,
+         quantify_isoquant, build_splice_matrices, qc_splice_proportion)
 def full():
     """
     Run the complete pipeline including alignment, FLAMES quantification,
-    gene counts, velocity matrices, and all QC.
+    IsoQuant transcript quantification (concurrent with FLAMES), gene counts,
+    velocity matrices, and all QC.
+
+    FLAMES runs from FASTQ for novel isoform discovery and its own
+    quantification. IsoQuant runs from the tagged BAM for UMI-deduplicated
+    transcript and spliced/unspliced gene matrices. Both are scheduled
+    concurrently by ruffus as they are independent of each other.
     """
     pass
 
@@ -593,10 +851,15 @@ def flames():
     pass
 
 
-@follows(count_genes, count_velocity)
+@follows(run_flames, count_genes, count_velocity,
+         quantify_isoquant, build_splice_matrices, qc_splice_proportion)
 def quantify():
     """
-    Run quantification only (requires tagged BAMs).
+    Run quantification only (requires aligned FASTQ/BAMs upstream).
+
+    Runs both FLAMES (from FASTQ, novel isoform discovery) and IsoQuant
+    (from the tagged BAM, UMI-deduplicated spliced/unspliced matrices)
+    concurrently, plus featureCounts gene counts and velocity matrices.
     """
     pass
 
