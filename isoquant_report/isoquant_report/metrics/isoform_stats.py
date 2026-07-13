@@ -33,26 +33,38 @@ def isoforms_per_gene(
     )
 
 
+def _n_features_detected(adata: ad.AnnData) -> np.ndarray:
+    """Per-cell count of features with >0 counts."""
+    det = (adata.X > 0).sum(axis=1)
+    if hasattr(det, "A1"):
+        return det.A1
+    return np.asarray(det).flatten()
+
+
 def gene_isoform_detection(
     gene_adata: ad.AnnData,
     tx_adata: ad.AnnData,
 ) -> pd.DataFrame:
-    """Per-cell genes detected vs isoforms detected."""
-    gene_det = (gene_adata.X > 0).sum(axis=1)
-    if hasattr(gene_det, "A1"):
-        gene_det = gene_det.A1
-    else:
-        gene_det = np.asarray(gene_det).flatten()
-    tx_det = (tx_adata.X > 0).sum(axis=1)
-    if hasattr(tx_det, "A1"):
-        tx_det = tx_det.A1
-    else:
-        tx_det = np.asarray(tx_det).flatten()
+    """
+    Per-cell genes detected vs isoforms detected.
+
+    Aligns on the intersection of barcodes present in both matrices.
+    Gene and transcript h5ad files may differ in cell sets when spliced
+    transcript counts omit cells with no spliced molecules.
+    """
+    common = sorted(set(gene_adata.obs_names) & set(tx_adata.obs_names))
+    if not common:
+        return pd.DataFrame(
+            columns=["barcode", "genes_detected", "isoforms_detected"]
+        )
+
+    gene_sub = gene_adata[common, :]
+    tx_sub = tx_adata[common, :]
     return pd.DataFrame(
         {
-            "barcode": list(gene_adata.obs_names),
-            "genes_detected": gene_det,
-            "isoforms_detected": tx_det,
+            "barcode": common,
+            "genes_detected": _n_features_detected(gene_sub),
+            "isoforms_detected": _n_features_detected(tx_sub),
         }
     )
 

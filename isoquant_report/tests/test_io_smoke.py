@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import pandas as pd
 
 from isoquant_report.config import ReportConfig
 from isoquant_report.export_html import export_html
@@ -47,3 +48,26 @@ def test_load_and_figures(fixture_root, tmp_path):
     export_html(data, out)
     assert out.exists()
     assert out.stat().st_size > 100
+
+
+def test_gene_isoform_detection_mismatched_cells():
+    """Spliced transcript matrix may have fewer cells than gene matrix."""
+    import anndata as ad
+    import numpy as np
+    import scipy.sparse as sp
+
+    from isoquant_report.metrics.isoform_stats import gene_isoform_detection
+
+    gene = ad.AnnData(
+        X=sp.csr_matrix([[1, 0], [0, 1], [1, 1]]),
+        obs=pd.DataFrame(index=["A", "B", "C"]),
+        var=pd.DataFrame(index=["g1", "g2"]),
+    )
+    tx = ad.AnnData(
+        X=sp.csr_matrix([[1, 0], [0, 1]]),
+        obs=pd.DataFrame(index=["A", "B"]),
+        var=pd.DataFrame(index=["t1", "t2"]),
+    )
+    det = gene_isoform_detection(gene, tx)
+    assert len(det) == 2
+    assert set(det["barcode"]) == {"A", "B"}
