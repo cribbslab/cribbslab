@@ -26,7 +26,7 @@ jobs:
         uses: actions/cache@v3
         env:
           # Increase this value to reset cache if conda/environments/cribbslab.yml has not changed
-          CACHE_NUMBER: 0
+          CACHE_NUMBER: 1
         with:
           path: ~/conda_pkgs_dir
           key:
@@ -40,6 +40,8 @@ jobs:
           channel-priority: true
           activate-environment: cgat-core
           environment-file: conda/environments/cribbslab.yml
+      - name: Install multiqc
+        run: pip install multiqc
       - name: Show conda
         run: |
           conda info

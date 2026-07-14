@@ -39,11 +39,9 @@ dependencies:
 - samtools
 - fastqc
 - bowtie2
-# multiqc via pip: bioconda's conda package pulls pyaml-env / lzstring from
-# conda-forge, which often fails to solve under strict channel priority in CI.
-- pip
-- pip:
-  - multiqc
+# multiqc is installed via pip in CI (see .github/workflows/cribbslab_tests.yml).
+# Do not list it here: modern mamba "pip interop" tries to conda-solve pip
+# packages and fails on bioconda multiqc's pyaml-env / lzstring deps.
 #
 # NOTE: pipeline_sclong (single-cell long-read / FLAMES) dependencies live in
 # conda/environments/sclong.yml. They are kept separate because several
