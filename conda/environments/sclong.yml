@@ -32,7 +32,10 @@ dependencies:
 - blaze2            # BLAZE cell-barcode/UMI identification (executable: blaze)
 - nanoplot          # long-read QC
 - subread           # featureCounts (gene-level quantification)
-- multiqc
+# multiqc via pip (see cribbslab.yml for rationale)
+- pip
+- pip:
+  - multiqc
 # R + R packages (FLAMES, barcode tagging, combined/velocity counting)
 - r-base
 - r-optparse
