@@ -59,3 +59,13 @@ dependencies:
 - scanpy
 - jinja2
 - pytest
+# ctat-LR-fusion (container) + per-cell longshot SNV calling (wf-single-cell)
+- longshot
+- gatk4
+- umi_tools
+- bcftools
+- bedtools
+- mosdepth
+- csvtk
+- htslib
+- pysam

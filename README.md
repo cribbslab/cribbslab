@@ -21,12 +21,22 @@ The repository can also be installed manually, but dependancies will need to be 
 
 ## Usage
 
-    Run the ``cribbslab --help`` command view the help documentation for how to run the available workflows.
+Run ``cribbslab --help`` to list available workflows.
 
-    To run a pipeline first generate a configuration file::
+To run a pipeline, create a project directory, generate a configuration file,
+and run a target:
 
-        cribbslab <workflow> config
+```bash
+mkdir my_run && cd my_run
+cribbslab <workflow> config    # creates pipeline.yml
+# edit pipeline.yml (paths, kit, threads, ...)
+cribbslab <workflow> make full --local -j 8
+```
 
-    Then run the pipeline::
+### Single-cell long-read RNA-seq (`sclong`)
 
-        cribbslab <workflow> make full -v5
+The 10x ONT single-cell pipeline has a dedicated guide covering input
+preparation (FASTQ, reference, GTF), configuration, run targets, and optional
+fusion/SNV steps:
+
+**[cribbslab/pipeline_sclong/README.md](cribbslab/pipeline_sclong/README.md)**

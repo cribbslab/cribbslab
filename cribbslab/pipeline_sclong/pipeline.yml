@@ -279,6 +279,55 @@ isoquant_report:
     write_config: true
 
 # -----------------------------------------------
+# Fusion calling (ctat-LR-fusion, containerised)
+# -----------------------------------------------
+# Opt-in: set call_fusions: true and run ``make fusions``.
+# Requires a CTAT resource directory built against the same reference as
+# genome_fasta / isoquant_gtf. Prebuilt bundles:
+#   https://data.broadinstitute.org/Trinity/CTAT_RESOURCE_LIB/
+
+fusion:
+    call_fusions: false
+
+    # Path to ctat-LR-fusion genome_lib_dir (must match reference annotation)
+    ctat_resource_dir: /path/to/ctat_genome_lib
+
+    # Container invocation prefix (Singularity example). Adjust image path.
+    run_prefix: singularity exec --bind $PWD /path/to/ctat_lr_fusion.sif
+
+    threads: 8
+    memory: 16G
+
+# -----------------------------------------------
+# Per-cell SNV calling (longshot, wf-single-cell port)
+# -----------------------------------------------
+# Opt-in: set call_variants: true and run ``make variants``.
+# Heavy: wf-single-cell reports ~24h on 64 cores for ~1500 cells.
+
+snv:
+    call_variants: false
+
+    threads: 8
+    merge_threads: 8
+    memory: 32G
+
+    # Round-1 longshot thresholds (per-cell discovery)
+    call1_min_alt_count: 1
+    call1_min_cov: 1
+
+    # Bulk longshot thresholds
+    bulk_min_alt_count: 2
+    bulk_min_cov: 2
+
+    # Round-2 genotyping
+    genotype2_min_alt_count: 1
+    genotype2_min_cov: 1
+    depth_target: 200
+
+    # Optional VCF of variants of interest for genotype matrix filtering
+    report_variants: ''
+
+# -----------------------------------------------
 # Cluster settings (for HPC environments)
 # -----------------------------------------------
 
