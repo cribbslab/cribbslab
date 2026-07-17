@@ -223,6 +223,7 @@ Common options:
 | `qc` | NanoPlot, barcode summary, MultiQC, IsoQuant HTML report |
 | `isoquant_report` | Regenerate IsoQuant static HTML only |
 | `fusions` | ctat-LR-fusion + per-read/per-fusion tables (opt-in; set `fusion.call_fusions: true`) |
+| `targeted_fusions` | Whitelist translocation window scan per cell (opt-in; set `targeted_fusion.run: true`) |
 | `variants` | Per-cell longshot SNV calling + genotype matrix (opt-in; set `snv.call_variants: true`) |
 
 Typical partial reruns:
@@ -255,6 +256,43 @@ cribbslab sclong make fusions --local -j 4
 ```
 
 Outputs under `fusions/{sample}/`.
+
+**Targeted translocation scanning** (after `align` or `full`; complements ctat-LR-fusion):
+
+Scans the barcode-tagged BAM for reads whose alignments land in both windows of
+known translocation pairs (e.g. myeloma t4;14 IGH–NSD2). Aggregates supporting
+reads and UMIs **per cell barcode** and writes a cell × translocation matrix.
+
+```yaml
+targeted_fusion:
+  run: true
+  whitelist: /path/to/cribbslab/cribbslab/pipeline_sclong/fusion_whitelist.tsv
+  bam_source: cells          # cells (tagged_cells) | all (tagged)
+  window_size: 1000000
+  padding_units: windows     # windows | bp
+  min_mapq: 20
+  matrix_window: exact       # exact | broad
+```
+
+Whitelist TSV columns (required: `cluster`, `chr_left`, `chr_right`):
+
+| Mode | Columns | Example |
+|------|---------|---------|
+| Bin-based | `bin_left`, `bin_right` | t4;14 chr4 bin 2 + chr14 bin 106 (1 Mb windows) |
+| Midpoint-based | `mid_left_bp`, `mid_right_bp` | centre each window on a breakpoint coordinate |
+| Optional per row | `window_size`, `pad_left`, `pad_right` | override defaults; padding in windows or bp |
+
+```bash
+cribbslab sclong make targeted_fusions --local -j 4
+```
+
+Outputs under `targeted_fusions/` per sample:
+
+- `{sample}.targeted_fusion.per_target.tsv` — sample-level summary (bulk-equivalent + `n_cells`, `n_umis`)
+- `{sample}.targeted_fusion.per_cell.tsv` — long table: barcode × translocation support
+- `{sample}.targeted_fusion.matrix.umi.tsv` — wide cell × translocation UMI matrix
+- `{sample}.targeted_fusion.matrix.reads.tsv` — wide cell × translocation read matrix
+- `{sample}.targeted_fusion.per_read.tsv` — per-read evidence with CB/UB tags
 
 **Per-cell SNVs** (computationally heavy):
 
@@ -293,6 +331,7 @@ directory as tasks complete.
 | `multiqc/` | Aggregated QC report |
 | `isoquant_report/` | Static HTML report (+ `config.yaml` for Streamlit) |
 | `fusions/` | Fusion predictions (opt-in) |
+| `targeted_fusions/` | Targeted translocation scan per cell (opt-in) |
 | `snv/` | Per-cell VCFs and genotype matrix (opt-in) |
 
 ### Interactive IsoQuant report

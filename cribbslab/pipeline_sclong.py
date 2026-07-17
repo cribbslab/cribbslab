@@ -75,6 +75,7 @@ Pipeline output
 * Novel transcript GTF (flames/)
 * QC reports (multiqc/)
 * Fusion predictions (fusions/) — opt-in via ``make fusions``
+* Targeted translocation scan (targeted_fusions/) — opt-in via ``make targeted_fusions``
 * Per-cell SNV VCF + genotype matrix (snv/) — opt-in via ``make variants``
 
 Output count matrices include BOTH spliced and unspliced reads to capture
@@ -94,7 +95,8 @@ Processing steps
 6. Separate velocity matrices (spliced/unspliced for scVelo)
 7. QC and MultiQC reporting (including splice-proportion outlier table)
 8. (Opt-in) ctat-LR-fusion fusion calling on tagged BAMs (`make fusions`)
-9. (Opt-in) Per-cell longshot SNV calling + genotype matrix (`make variants`)
+9. (Opt-in) Targeted translocation window scan per cell (`make targeted_fusions`)
+10. (Opt-in) Per-cell longshot SNV calling + genotype matrix (`make variants`)
 
 Code
 ====
@@ -896,6 +898,77 @@ def format_fusions(infile, outfile):
 
 
 # -----------------------------------------------
+# Targeted translocation scanning (split-mm port, single-cell)
+# -----------------------------------------------
+
+@follows(mkdir("targeted_fusions"))
+@transform(subset_cells,
+           regex(r"tagged_cells/(\S+)\.cells\.bam"),
+           r"targeted_fusions/\1.targeted_fusion.per_cell.tsv")
+def targeted_fusion_scan(infile, outfile):
+    """
+    Scan barcode-tagged BAM for reads supporting whitelist translocation pairs.
+
+    Uses genomic window pairs (exact + padded broad windows) and aggregates
+    supporting reads and UMIs per cell barcode. Writes per-target summary,
+    per-cell long table, cell x translocation matrices, and per-read evidence.
+
+    Requires targeted_fusion_run: true in pipeline.yml.
+    """
+    if not PARAMS.get("targeted_fusion_run", False):
+        raise ValueError(
+            "targeted_fusion_run is false. Set targeted_fusion.run: true "
+            "in pipeline.yml and run ``make targeted_fusions``."
+        )
+
+    sample = os.path.basename(infile).replace(".cells.bam", "")
+    whitelist = PARAMS.get("targeted_fusion_whitelist", "")
+    if not whitelist or not os.path.isfile(whitelist):
+        raise ValueError(
+            "targeted_fusion_whitelist must point to an existing TSV file: "
+            "{}".format(whitelist)
+        )
+
+    bam_source = PARAMS.get("targeted_fusion_bam_source", "cells")
+    if bam_source == "all":
+        bam = "tagged/{}.tagged.bam".format(sample)
+    else:
+        bam = infile
+
+    if not os.path.isfile(bam):
+        raise ValueError("BAM not found for targeted fusion scan: {}".format(bam))
+
+    outdir = os.path.dirname(outfile) or "targeted_fusions"
+    job_memory = PARAMS.get("targeted_fusion_memory", "8G")
+    window_size = PARAMS.get("targeted_fusion_window_size", 1000000)
+    padding_units = PARAMS.get("targeted_fusion_padding_units", "windows")
+    min_mapq = PARAMS.get("targeted_fusion_min_mapq", 20)
+    matrix_window = PARAMS.get("targeted_fusion_matrix_window", "exact")
+    keep_secondary = PARAMS.get("targeted_fusion_keep_secondary", False)
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+
+    keep_secondary_flag = " --keep-secondary" if keep_secondary else ""
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/sc_fusion_windows.py
+        --bam %(bam)s
+        --whitelist %(whitelist)s
+        --sample %(sample)s
+        --outdir %(outdir)s
+        --out-prefix %(sample)s
+        --window-size %(window_size)s
+        --padding-units %(padding_units)s
+        --min-mapq %(min_mapq)s
+        --matrix-window %(matrix_window)s
+        %(keep_secondary_flag)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
 # Per-cell SNV calling (longshot, wf-single-cell port)
 # -----------------------------------------------
 
@@ -1258,6 +1331,16 @@ def fusions():
     Run ctat-LR-fusion fusion calling on tagged BAMs.
 
     Requires fusion.call_fusions: true in pipeline.yml.
+    """
+    pass
+
+
+@follows(targeted_fusion_scan)
+def targeted_fusions():
+    """
+    Scan tagged BAMs for whitelist translocation pairs per cell.
+
+    Requires targeted_fusion.run: true in pipeline.yml.
     """
     pass
 

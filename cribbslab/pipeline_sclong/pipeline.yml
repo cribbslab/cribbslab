@@ -299,6 +299,36 @@ fusion:
     memory: 16G
 
 # -----------------------------------------------
+# Targeted translocation scanning (split-mm port, single-cell)
+# -----------------------------------------------
+# Opt-in: set run: true and run ``make targeted_fusions``.
+# Scans barcode-tagged BAM for reads supporting whitelist chromosome-pair
+# windows and writes per-cell support tables and cell x translocation matrices.
+
+targeted_fusion:
+    run: false
+
+    # TSV whitelist of translocation pairs (see pipeline_sclong/fusion_whitelist.tsv)
+    whitelist: /path/to/fusion_whitelist.tsv
+
+    # BAM source: cells = tagged_cells (true cells only); all = full tagged BAM
+    bam_source: cells
+
+    # Default window size for rows without per-row window_size (bp)
+    window_size: 1000000
+
+    # How pad_left / pad_right are interpreted: windows | bp
+    padding_units: windows
+
+    min_mapq: 20
+    keep_secondary: false
+
+    # Which window tier feeds the wide matrix outputs: exact | broad
+    matrix_window: exact
+
+    memory: 8G
+
+# -----------------------------------------------
 # Per-cell SNV calling (longshot, wf-single-cell port)
 # -----------------------------------------------
 # Opt-in: set call_variants: true and run ``make variants``.
