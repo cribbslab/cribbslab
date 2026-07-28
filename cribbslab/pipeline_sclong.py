@@ -286,17 +286,18 @@ def align_minimap2(infile, outfile):
            r"tagged/\1.tagged.bam")
 def tag_bam_with_barcodes(infile, outfile):
     """
-    Add cell barcode (CB) and UMI (UB) tags to BAM file
-    using BLAZE barcode assignments.
-    
+    Add cell barcode (CB) and UMI (UB) tags to BAM file using BLAZE step-3
+    read-to-whitelist assignment (error-corrected CB/UB), not raw putative_bc.
+
     Tags are added in 10x-compatible format:
-    - CB:Z: cell barcode
-    - UB:Z: UMI sequence
+    - CB:Z: corrected cell barcode (whitelist sequence)
+    - UB:Z: UMI sequence (INDEL-adjusted when applicable)
     """
 
-    # Get corresponding BLAZE output
+    # Get corresponding BLAZE outputs
     basename = os.path.basename(infile).replace(".bam", "")
     blaze_bc = "blaze/{}_putative_bc.csv".format(basename)
+    blaze_whitelist = "blaze/{}_whitelist.csv".format(basename)
 
     job_memory = PARAMS.get("tag_memory", "16G")
 
@@ -306,6 +307,7 @@ def tag_bam_with_barcodes(infile, outfile):
         Rscript %(R_SRC_PATH)s/tag_bam_barcodes.R
         --bam %(infile)s
         --barcodes %(blaze_bc)s
+        --whitelist %(blaze_whitelist)s
         --output %(outfile)s
         && samtools index %(outfile)s
     """

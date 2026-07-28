@@ -3,11 +3,13 @@
 # ==============================================================================
 # Tag BAM file with cell barcodes from BLAZE output
 #
-# This script adds CB (cell barcode) and UB (UMI) tags to a BAM file
-# using barcode assignments from BLAZE.
+# Applies BLAZE step-3 read-to-whitelist assignment (error-corrected CB/UB)
+# before writing CB and UB tags. Using raw putative_bc values causes many
+# reads to miss subset_cells when CB does not exactly match the whitelist.
 #
 # Usage:
-#   Rscript tag_bam_barcodes.R --bam <file> --barcodes <file> --output <file>
+#   Rscript tag_bam_barcodes.R --bam <file> --barcodes <putative_bc.csv> \
+#       [--whitelist <whitelist.csv>] --output <file>
 #
 # Output:
 #   - BAM file with CB and UB tags added to reads
@@ -15,7 +17,6 @@
 
 suppressPackageStartupMessages({
     library(optparse)
-    library(data.table)
 })
 
 # Parse command line arguments
@@ -28,7 +29,15 @@ option_list <- list(
     make_option(c("-c", "--barcodes"),
                 type = "character",
                 default = NULL,
-                help = "BLAZE barcode CSV file (putative_bc.csv)",
+                help = "BLAZE putative_bc.csv",
+                metavar = "FILE"),
+    make_option(c("-w", "--whitelist"),
+                type = "character",
+                default = NULL,
+                help = paste0(
+                    "BLAZE whitelist.csv for corrected assignments ",
+                    "(default: infer from --barcodes path)"
+                ),
                 metavar = "FILE"),
     make_option(c("-o", "--output"),
                 type = "character",
@@ -38,7 +47,7 @@ option_list <- list(
 )
 
 opt_parser <- OptionParser(option_list = option_list,
-                           description = "Add barcode tags to BAM file")
+                           description = "Add corrected BLAZE barcode tags to BAM file")
 opt <- parse_args(opt_parser)
 
 # Validate required arguments
@@ -51,78 +60,89 @@ if (is.null(opt$barcodes)) {
 if (is.null(opt$output)) {
     stop("Error: --output is required")
 }
+if (!file.exists(opt$barcodes)) {
+    stop(sprintf("Error: barcode file not found: %s", opt$barcodes))
+}
+
+# Resolve sibling whitelist when not supplied explicitly.
+whitelist_path <- opt$whitelist
+if (is.null(whitelist_path) || !nzchar(whitelist_path)) {
+    whitelist_path <- sub("_putative_bc\\.csv$", "_whitelist.csv", opt$barcodes)
+}
 
 cat("========================================\n")
-cat("BAM Barcode Tagging\n")
+cat("BAM Barcode Tagging (BLAZE-corrected)\n")
 cat("========================================\n")
 cat(paste0("Input BAM: ", opt$bam, "\n"))
-cat(paste0("Barcode file: ", opt$barcodes, "\n"))
+cat(paste0("Putative BC: ", opt$barcodes, "\n"))
+cat(paste0("Whitelist: ", whitelist_path, "\n"))
 cat(paste0("Output BAM: ", opt$output, "\n"))
 cat("========================================\n\n")
 
-# Read barcode assignments
-cat("Reading barcode assignments...\n")
-bc_data <- fread(opt$barcodes)
-cat(paste0("Loaded ", nrow(bc_data), " barcode assignments\n\n"))
-
-# Create barcode lookup (read_id -> barcode)
-# BLAZE putative_bc.csv columns:
-#   read_id, putative_bc, putative_bc_min_q, putative_umi, polyT_end, ...
-bc_col <- "putative_bc"
-umi_col <- "putative_umi"
-
-if (!bc_col %in% colnames(bc_data)) {
+if (!file.exists(whitelist_path)) {
     stop(sprintf(
-        "Expected barcode column '%s' not found in %s. Columns present: %s",
-        bc_col, opt$barcodes, paste(colnames(bc_data), collapse = ", ")))
-}
-if (!"read_id" %in% colnames(bc_data)) {
-    stop(sprintf(
-        "Expected 'read_id' column not found in %s. Columns present: %s",
-        opt$barcodes, paste(colnames(bc_data), collapse = ", ")))
+        paste0(
+            "Error: BLAZE whitelist not found: %s\n",
+            "Pass --whitelist or ensure BLAZE completed step 2."
+        ),
+        whitelist_path
+    ))
 }
 
-# Many reads have no putative barcode (empty cells) - keep only barcoded reads.
-bc_data <- bc_data[!is.na(bc_data[[bc_col]]) & bc_data[[bc_col]] != "", ]
-cat(paste0("Reads with a putative barcode: ", nrow(bc_data), "\n"))
-
-bc_lookup <- setNames(bc_data[[bc_col]], bc_data$read_id)
-umi_lookup <- if (umi_col %in% colnames(bc_data)) {
-    setNames(bc_data[[umi_col]], bc_data$read_id)
+# Locate blaze_assign_barcodes.py relative to this script (../python/).
+args_all <- commandArgs(trailingOnly = FALSE)
+file_arg <- grep("^--file=", args_all, value = TRUE)
+if (length(file_arg)) {
+    script_dir <- dirname(normalizePath(sub("^--file=", "", file_arg[1])))
 } else {
-    NULL
+    script_dir <- getwd()
 }
+assign_script <- normalizePath(
+    file.path(script_dir, "..", "python", "blaze_assign_barcodes.py"),
+    mustWork = TRUE
+)
+
+python_bin <- Sys.which("python3")
+if (!nzchar(python_bin)) {
+    python_bin <- Sys.which("python")
+}
+if (!nzchar(python_bin)) {
+    stop("Error: python3/python not found on PATH")
+}
+
+assignments_tsv <- tempfile(fileext = ".blaze_assignments.tsv")
+assign_cmd <- paste(
+    shQuote(python_bin),
+    shQuote(assign_script),
+    "--putative-bc", shQuote(opt$barcodes),
+    "--whitelist", shQuote(whitelist_path),
+    "--output", shQuote(assignments_tsv)
+)
+cat("Running BLAZE read assignment...\n")
+cat(paste0("Command: ", assign_cmd, "\n\n"))
+assign_status <- system(assign_cmd)
+if (assign_status != 0) {
+    stop("BLAZE read assignment failed")
+}
+
+n_assigned <- length(readLines(assignments_tsv))
+cat(paste0("Reads with corrected CB assignment: ", n_assigned, "\n\n"))
 
 # Process BAM file
 cat("Processing BAM file...\n")
 
-# Create output directory if needed
 outdir <- dirname(opt$output)
 if (!dir.exists(outdir)) {
     dir.create(outdir, recursive = TRUE)
 }
 
-# Lightweight stats (avoid loading the whole BAM into memory).
 n_aln <- as.integer(system(paste("samtools view -c", shQuote(opt$bam)),
                            intern = TRUE))
-cat(paste0("Total alignments: ", n_aln, "\n"))
-cat(paste0("Reads with an assignable barcode: ", length(bc_lookup), "\n\n"))
+cat(paste0("Total alignments: ", n_aln, "\n\n"))
 
 cat("Writing tagged BAM file...\n")
 
-# Create a barcode tag file (read_id, CB, UB) and stream-tag with awk + samtools.
-bc_tag_file <- tempfile(fileext = ".tsv")
-ub_values <- if (!is.null(umi_lookup)) umi_lookup[names(bc_lookup)] else ""
-ub_values[is.na(ub_values)] <- ""
-bc_out <- data.frame(
-    read_id = names(bc_lookup),
-    CB = unname(bc_lookup),
-    UB = unname(ub_values)
-)
-fwrite(bc_out, bc_tag_file, sep = "\t", col.names = FALSE, na = "")
-
-# Use awk with samtools to add tags. Only append a tag when a value is present
-# so we never emit a malformed empty tag (e.g. "UB:Z:").
+# assignments_tsv columns: read_id, CB, UB
 tag_cmd <- paste0(
     "samtools view -h ", shQuote(opt$bam), " | ",
     "awk -F'\\t' -v OFS='\\t' 'NR==FNR{bc[$1]=$2; umi[$1]=$3; next} ",
@@ -131,20 +151,18 @@ tag_cmd <- paste0(
     "if($1 in bc && bc[$1]!=\"\"){line=line\"\\tCB:Z:\"bc[$1]; ",
     "if(umi[$1]!=\"\")line=line\"\\tUB:Z:\"umi[$1]} ",
     "print line}' ",
-    shQuote(bc_tag_file), " - | ",
+    shQuote(assignments_tsv), " - | ",
     "samtools view -bS -o ", shQuote(opt$output), " -"
 )
 
 result <- system(tag_cmd)
 
 if (result != 0) {
-    # Fallback: just copy the BAM (tags won't be added)
     warning("Failed to add tags with awk. Copying original BAM.")
     file.copy(opt$bam, opt$output)
 }
 
-# Clean up
-unlink(bc_tag_file)
+unlink(assignments_tsv)
 
 cat("\n========================================\n")
 cat("BAM tagging completed!\n")
