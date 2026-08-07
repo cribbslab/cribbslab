@@ -174,11 +174,22 @@ velocity:
 # -----------------------------------------------
 
 nanoplot:
-    # Number of threads
-    threads: 4
+    # Keep low: for a single BAM, high thread counts inflate peak RAM
+    # and often trigger BrokenProcessPool (OOM-killed workers).
+    threads: 2
 
-    # Memory per job
-    memory: 8G
+    # Memory per job (8G is too small for large nuclei BAMs)
+    memory: 32G
+
+    # Pass NanoPlot --huge (streaming mode for very large inputs)
+    huge: true
+
+    # Optional: cap reads used for plots/stats (e.g. 100000). Leave empty
+    # / null to use all reads.
+    downsample: null
+
+    # Extra NanoPlot flags if needed
+    options: ''
 
 # -----------------------------------------------
 # BAM tagging settings

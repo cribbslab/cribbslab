@@ -1213,19 +1213,34 @@ def snv_merge_matrix(infile, outfile):
 def qc_nanoplot(infile, outfile):
     """
     Run NanoPlot on aligned BAM files for long-read QC metrics.
+
+    Large nuclei BAMs often OOM NanoPlot's process pool (BrokenProcessPool /
+    signal -1). Defaults enable --huge and request more memory; lower
+    nanoplot.threads or set nanoplot.downsample if it still fails.
     """
 
     outdir = os.path.dirname(outfile)
 
-    job_threads = PARAMS.get("nanoplot_threads", 4)
-    job_memory = PARAMS.get("nanoplot_memory", "8G")
+    job_threads = PARAMS.get("nanoplot_threads", 2)
+    job_memory = PARAMS.get("nanoplot_memory", "32G")
+    huge = PARAMS.get("nanoplot_huge", True)
+    downsample = PARAMS.get("nanoplot_downsample", None)
+    extra = PARAMS.get("nanoplot_options", "")
+
+    huge_opt = "--huge" if huge else ""
+    downsample_opt = ""
+    if downsample:
+        downsample_opt = "--downsample %s" % downsample
 
     statement = """
-        NanoPlot --bam %(infile)s 
-        -o %(outdir)s 
-        --tsv_stats 
-        --plots dot 
+        NanoPlot --bam %(infile)s
+        -o %(outdir)s
+        --tsv_stats
+        --plots dot
         -t %(job_threads)s
+        %(huge_opt)s
+        %(downsample_opt)s
+        %(extra)s
     """
 
     P.run(statement)
