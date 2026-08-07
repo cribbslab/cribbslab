@@ -196,8 +196,12 @@ nanoplot:
 # -----------------------------------------------
 
 tag:
-    # Memory for BAM tagging
-    memory: 16G
+    # Threads for BLAZE step-3 read→whitelist assignment (CPU-bound).
+    # This is usually the slow part of tagging; raise if CPUs are free.
+    threads: 8
+
+    # Memory for BAM tagging (awk holds the full assignment map in RAM)
+    memory: 32G
 
 # -----------------------------------------------
 # IsoQuant settings (default discovery + quantification)

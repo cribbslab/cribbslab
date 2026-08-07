@@ -298,7 +298,10 @@ def tag_bam_with_barcodes(infile, outfile):
     blaze_bc = "blaze/{}_putative_bc.csv".format(basename)
     blaze_whitelist = "blaze/{}_whitelist.csv".format(basename)
 
-    job_memory = PARAMS.get("tag_memory", "16G")
+    # Assignment is CPU-bound (per-read whitelist edit distance). Give it
+    # threads and enough RAM for the awk barcode map + BAM stream.
+    job_threads = PARAMS.get("tag_threads", 8)
+    job_memory = PARAMS.get("tag_memory", "32G")
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
@@ -308,6 +311,7 @@ def tag_bam_with_barcodes(infile, outfile):
         --barcodes %(blaze_bc)s
         --whitelist %(blaze_whitelist)s
         --output %(outfile)s
+        --threads %(job_threads)s
         && samtools index %(outfile)s
     """
 
