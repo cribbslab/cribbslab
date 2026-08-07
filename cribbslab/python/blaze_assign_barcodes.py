@@ -29,16 +29,19 @@ import pandas as pd
 from blaze.config import DEFAULT_ASSIGNMENT_ED
 from blaze.read_assignment import _match_bc_row
 
-# Columns required by blaze.read_assignment._match_bc_row
+# Columns written by BLAZE (blaze.main) into putative_bc.csv
 _REQUIRED_COLS = (
     "read_id",
     "putative_bc",
     "putative_umi",
-    "putative_bc_qscore",
     "polyT_end",
     "pre_bc_flanking",
     "post_umi_flanking",
 )
+
+# blaze.read_assignment._match_bc_row expects putative_bc_qscore, but BLAZE's
+# CSV column is putative_bc_min_q. Alias before calling into BLAZE.
+_QSCORE_ALIASES = ("putative_bc_qscore", "putative_bc_min_q", "min_q", "minQ")
 
 
 def load_whitelist(path: str) -> set[str]:
@@ -54,6 +57,21 @@ def load_whitelist(path: str) -> set[str]:
     return set(barcodes)
 
 
+def _normalize_putative_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Ensure columns match what _match_bc_row attribute-accesses."""
+    frame = frame.copy()
+    if "putative_bc_qscore" not in frame.columns:
+        for alias in _QSCORE_ALIASES[1:]:
+            if alias in frame.columns:
+                frame["putative_bc_qscore"] = frame[alias]
+                break
+        else:
+            # min_q default is 0 so the score check is skipped; still provide
+            # a column so attribute access never fails.
+            frame["putative_bc_qscore"] = 0
+    return frame
+
+
 def _assign_chunk(
     frame: pd.DataFrame,
     whitelist: set[str],
@@ -62,7 +80,7 @@ def _assign_chunk(
 ) -> list[tuple[str, str, str]]:
     """Worker: assign one chunk of putative_bc rows."""
     out: list[tuple[str, str, str]] = []
-    frame = frame.fillna("")
+    frame = _normalize_putative_columns(frame.fillna(""))
     for row in frame.itertuples(index=False):
         bc, umi, _strand = _match_bc_row(row, whitelist, max_ed, min_q)
         if bc:
@@ -102,7 +120,16 @@ def assign_reads(
         raise SystemExit(
             "putative_bc.csv missing columns required for BLAZE assignment: "
             + ", ".join(missing)
+            + "\nFound columns: "
+            + ", ".join(header.columns.tolist())
         )
+    qscore_src = next(
+        (c for c in _QSCORE_ALIASES if c in header.columns), "default=0"
+    )
+    _log(
+        "Using barcode quality column: {}".format(qscore_src),
+        progress_log,
+    )
 
     assigned = 0
     total = 0
