@@ -14,10 +14,10 @@ Supports both 10x 5' and 3' chemistries.
 Key features:
 - Cell barcode and UMI extraction using BLAZE (supports 5' and 3' kits)
 - Splice-aware alignment with minimap2
-- Transcript discovery and quantification using FLAMES (from FASTQ)
-- Transcript quantification using IsoQuant (from tagged BAM, concurrent with FLAMES):
+- Transcript discovery and quantification using IsoQuant (from tagged BAM):
   spliced transcript-level and unspliced gene-level AnnData matrices,
   per-barcode splicing-proportion QC surfaced in MultiQC
+- Optional FLAMES (from FASTQ) for smaller samples — opt-in via ``make flames``
 - Combined gene-level and transcript-level count matrices (spliced + unspliced)
 - Separate spliced/unspliced matrices for RNA velocity analysis
 - Handling of both spliced and unspliced reads (important for nuclei)
@@ -56,9 +56,9 @@ Requirements
 * BLAZE - for cell barcode assignment (handles 5' and 3' kits)
 * minimap2 - for splice-aware alignment
 * samtools - for BAM processing
-* FLAMES (R package) - for single-cell isoform analysis
-* IsoQuant - for single-cell transcript quantification from tagged BAM
+* IsoQuant - for single-cell transcript discovery and quantification
 * featureCounts - for gene-level counting
+* FLAMES (R package) - optional, smaller samples only (``make flames``)
 
 Pipeline output
 ===============
@@ -70,9 +70,8 @@ Pipeline output
 * Spliced transcript AnnData and unspliced gene AnnData (splice_matrices/)
 * Per-barcode splicing-proportion QC, MultiQC custom content (qc_splice/)
 * Combined gene-level count matrix - spliced + unspliced (combined_counts/)
-* Transcript-level count matrix (flames/)
 * Separate spliced/unspliced matrices for velocity (velocity/)
-* Novel transcript GTF (flames/)
+* Optional FLAMES isoform discovery / counts (flames/) — ``make flames``
 * QC reports (multiqc/)
 * Fusion predictions (fusions/) — opt-in via ``make fusions``
 * Targeted translocation scan (targeted_fusions/) — opt-in via ``make targeted_fusions``
@@ -87,16 +86,16 @@ Processing steps
 1. BLAZE barcode assignment from long reads (kit-aware: 5' or 3')
 2. Minimap2 splice-aware alignment
 3. BAM tagging with cell barcodes and UMIs
-4a. FLAMES transcript discovery and quantification (from FASTQ)
-4b. IsoQuant transcript quantification (from tagged BAM, concurrent with 4a):
-    subset BAM to true cells, quantify with --barcoded_bam, derive
-    spliced transcript and unspliced gene AnnData matrices, splice QC
+4. IsoQuant transcript discovery and quantification (from tagged BAM):
+   subset BAM to true cells, quantify with --barcoded_bam, derive
+   spliced transcript and unspliced gene AnnData matrices, splice QC
 5. Combined gene-level counting (spliced + unspliced)
 6. Separate velocity matrices (spliced/unspliced for scVelo)
 7. QC and MultiQC reporting (including splice-proportion outlier table)
-8. (Opt-in) ctat-LR-fusion fusion calling on tagged BAMs (`make fusions`)
-9. (Opt-in) Targeted translocation window scan per cell (`make targeted_fusions`)
-10. (Opt-in) Per-cell longshot SNV calling + genotype matrix (`make variants`)
+8. (Opt-in) FLAMES from FASTQ for smaller samples (`make flames`)
+9. (Opt-in) ctat-LR-fusion fusion calling on tagged BAMs (`make fusions`)
+10. (Opt-in) Targeted translocation window scan per cell (`make targeted_fusions`)
+11. (Opt-in) Per-cell longshot SNV calling + genotype matrix (`make variants`)
 
 Code
 ====
@@ -406,10 +405,13 @@ def quantify_isoquant(infile, outfile):
     BLAZE/tag_bam_barcodes.R (--barcoded_bam). UMI-based deduplication is
     performed natively by IsoQuant within each barcode x gene group.
 
-    IsoQuant runs concurrently with FLAMES (which operates from FASTQ).
-    These are independent quantification routes and produce complementary
-    outputs: IsoQuant provides transcript-level spliced and gene-level
-    unspliced matrices derived here; FLAMES provides novel isoform discovery.
+    IsoQuant is the default discovery and quantification route for high cell
+    counts. Model construction (novel isoforms of annotated genes) is on by
+    default; set isoquant.no_model_construction: true to quantify against the
+    reference only. Novel *gene* discovery is not performed in single-cell
+    mode (IsoQuant limitation).
+
+    Optional FLAMES (make flames) remains available for smaller samples.
 
     Strand: minimap2 upstream uses -uf (forward-strand only). IsoQuant
     inherits this orientation from the BAM. Intronic reads on the wrong
@@ -436,8 +438,10 @@ def quantify_isoquant(infile, outfile):
     barcode_tag = PARAMS.get("isoquant_barcode_tag", "CB")
     umi_tag = PARAMS.get("isoquant_umi_tag", "UB")
     strip_suffix = PARAMS.get("isoquant_strip_barcode_suffix", True)
+    no_model = PARAMS.get("isoquant_no_model_construction", False)
 
     strip_opt = "--strip_barcode_suffix" if strip_suffix else ""
+    model_opt = "--no_model_construction" if no_model else ""
 
     statement = """
         %(binary)s
@@ -451,6 +455,7 @@ def quantify_isoquant(infile, outfile):
         --barcode_tag %(barcode_tag)s
         --umi_tag %(umi_tag)s
         %(strip_opt)s
+        %(model_opt)s
         --count_exons
         --counts_format mtx
         -o %(outdir)s
@@ -474,6 +479,10 @@ def run_flames(infile, outfile):
     """
     Run FLAMES for single-cell transcript discovery and quantification.
 
+    Opt-in only: set flames.run: true and ``make flames``. Prefer IsoQuant
+    (default in ``make full`` / ``make quantify``) for high cell-count
+    libraries — FLAMES can OOM on large nuclei samples.
+
     FLAMES 2.x runs end-to-end from FASTQ (it performs its own barcode
     demultiplexing and minimap2 alignment internally - it does not accept
     pre-aligned BAMs). One FLAMES run is performed per input sample.
@@ -486,11 +495,19 @@ def run_flames(infile, outfile):
     - Transcript- and gene-level quantification
 
     Parameters from pipeline.yml:
+        flames_run: must be true to execute
         flames_gtf: annotation GTF file
         flames_fasta: reference genome fasta
         flames_min_support_reads / flames_do_discovery
         blaze_expect_cells: expected number of cells
     """
+
+    if not PARAMS.get("flames_run", False):
+        raise ValueError(
+            "flames_run is false. Set flames.run: true in pipeline.yml "
+            "and run ``make flames``. For high cell counts prefer IsoQuant "
+            "(included in ``make full`` / ``make quantify``)."
+        )
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
@@ -1265,19 +1282,17 @@ def multiqc(infiles, outfile):
 # Pipeline targets
 # -----------------------------------------------
 
-@follows(run_flames, count_genes, count_velocity, multiqc,
+@follows(count_genes, count_velocity, multiqc,
          quantify_isoquant, build_splice_matrices, qc_splice_proportion,
          generate_isoquant_report)
 def full():
     """
-    Run the complete pipeline including alignment, FLAMES quantification,
-    IsoQuant transcript quantification (concurrent with FLAMES), gene counts,
-    velocity matrices, and all QC.
+    Run the complete pipeline: alignment, IsoQuant discovery/quantification,
+    gene counts, velocity matrices, and QC.
 
-    FLAMES runs from FASTQ for novel isoform discovery and its own
-    quantification. IsoQuant runs from the tagged BAM for UMI-deduplicated
-    transcript and spliced/unspliced gene matrices. Both are scheduled
-    concurrently by ruffus as they are independent of each other.
+    IsoQuant (from tagged BAM) is the default transcript discovery route and
+    scales better to high cell counts. FLAMES is opt-in via ``make flames``
+    for smaller samples (set flames.run: true).
     """
     pass
 
@@ -1293,20 +1308,23 @@ def align():
 @follows(run_flames)
 def flames():
     """
-    Run FLAMES transcript analysis only (requires tagged BAMs).
+    Opt-in FLAMES transcript analysis from FASTQ (set flames.run: true).
+
+    Prefer for smaller samples; use IsoQuant (``make full`` / ``make quantify``)
+    for high cell-count libraries.
     """
     pass
 
 
-@follows(run_flames, count_genes, count_velocity,
+@follows(count_genes, count_velocity,
          quantify_isoquant, build_splice_matrices, qc_splice_proportion)
 def quantify():
     """
-    Run quantification only (requires aligned FASTQ/BAMs upstream).
+    Run quantification only (requires aligned BAMs upstream).
 
-    Runs both FLAMES (from FASTQ, novel isoform discovery) and IsoQuant
-    (from the tagged BAM, UMI-deduplicated spliced/unspliced matrices)
-    concurrently, plus featureCounts gene counts and velocity matrices.
+    IsoQuant from the tagged BAM (UMI-deduplicated spliced/unspliced matrices
+    and isoform discovery), plus featureCounts gene counts and velocity
+    matrices. FLAMES is not included; use ``make flames`` separately.
     """
     pass
 

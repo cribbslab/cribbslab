@@ -102,20 +102,25 @@ minimap2:
     sort_memory: 1G
 
 # -----------------------------------------------
-# FLAMES settings (transcript discovery and quantification)
+# FLAMES settings (optional; smaller samples only)
 # -----------------------------------------------
+# Opt-in: set run: true and ``make flames``. Not part of ``make full``.
+# Prefer IsoQuant for high cell-count libraries — FLAMES often OOMs there.
 
 flames:
+    # Must be true to run ``make flames``
+    run: false
+
     # Path to annotation GTF file
     gtf: /path/to/gencode.v46.annotation.gtf.gz
 
     # Path to reference genome fasta (same as genome_fasta)
     fasta: /path/to/GRCh38.p14.genome.fa
 
-    # Number of threads for parallel processing
-    threads: 8
+    # Number of threads for parallel processing (lower if memory-limited)
+    threads: 4
 
-    # Memory per job (FLAMES can be memory intensive)
+    # Memory per job (FLAMES can exceed 40G RSS on large nuclei samples)
     memory: 64G
 
     # Minimum number of reads to support a transcript
@@ -184,12 +189,14 @@ tag:
     memory: 16G
 
 # -----------------------------------------------
-# IsoQuant settings (transcript quantification from tagged BAM)
+# IsoQuant settings (default discovery + quantification)
 # -----------------------------------------------
 
-# IsoQuant runs alongside FLAMES as a concurrent quantification route.
-# It consumes the tagged genome BAM directly (CB/UB tags from BLAZE) and
-# performs UMI-based deduplication natively in single-cell mode.
+# Primary transcript route for ``make full`` / ``make quantify``.
+# Consumes the tagged genome BAM (CB/UB from BLAZE), does UMI dedup in
+# single-cell mode, and by default constructs transcript models (novel
+# isoforms of annotated genes). Novel *gene* discovery is not available
+# in SC mode — use bulk IsoQuant or opt-in FLAMES for that.
 #
 # Note: IsoQuant single-cell UMI deduplication is believed to be
 # edit-distance aware (Levenshtein ED3 for tenX_v3). This has not been
@@ -229,6 +236,10 @@ isoquant:
 
     # Memory per job
     memory: 64G
+
+    # Skip transcript model construction (reference quantification only).
+    # Leave false so IsoQuant discovers novel isoforms of annotated genes.
+    no_model_construction: false
 
     # BAM tag carrying the cell barcode (must match tag written by tag_bam_barcodes.R)
     barcode_tag: CB

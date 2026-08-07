@@ -2,10 +2,10 @@
 
 Analysis of 10x Genomics single-cell long-read RNA-seq from Oxford Nanopore
 (ONT) nuclei libraries. The workflow assigns cell barcodes with BLAZE,
-aligns with minimap2, quantifies with FLAMES and IsoQuant (concurrent routes),
+aligns with minimap2, discovers and quantifies isoforms with IsoQuant,
 builds spliced/unspliced count matrices, and produces MultiQC plus an IsoQuant
-HTML report. Fusion calling (ctat-LR-fusion) and per-cell SNV calling
-(longshot) are optional add-ons.
+HTML report. FLAMES (smaller samples), fusion calling (ctat-LR-fusion), and
+per-cell SNV calling (longshot) are optional add-ons.
 
 ## Quick start
 
@@ -216,10 +216,10 @@ Common options:
 
 | Target | What it runs |
 |--------|----------------|
-| `full` | End-to-end: BLAZE → align → tag → FLAMES + IsoQuant → matrices → MultiQC → IsoQuant HTML report |
+| `full` | End-to-end: BLAZE → align → tag → IsoQuant → matrices → MultiQC → IsoQuant HTML report |
 | `align` | BLAZE, minimap2 alignment, BAM tagging only |
-| `flames` | FLAMES transcript analysis (needs tagged BAMs) |
-| `quantify` | FLAMES + IsoQuant + featureCounts + velocity + splice matrices (needs alignment upstream) |
+| `quantify` | IsoQuant + featureCounts + velocity + splice matrices (needs alignment upstream) |
+| `flames` | Opt-in FLAMES from FASTQ (set `flames.run: true`; prefer for smaller samples) |
 | `qc` | NanoPlot, barcode summary, MultiQC, IsoQuant HTML report |
 | `isoquant_report` | Regenerate IsoQuant static HTML only |
 | `fusions` | ctat-LR-fusion + per-read/per-fusion tables (opt-in; set `fusion.call_fusions: true`) |
@@ -240,6 +240,25 @@ cribbslab sclong make qc --local -j 4
 ```
 
 ### Optional add-ons
+
+**FLAMES** (smaller samples only; not in `full`):
+
+IsoQuant is the default discovery route and scales better to high cell counts.
+FLAMES can exceed ~40G RSS and OOM on large nuclei libraries. For smaller
+samples, enable and run separately:
+
+```yaml
+flames:
+  run: true
+  threads: 4
+  memory: 64G
+```
+
+```bash
+cribbslab sclong make flames --local -j 2
+```
+
+Outputs under `flames/{sample}/`.
 
 **Fusions** (after a successful `align` or `full` run):
 
@@ -321,8 +340,8 @@ directory as tasks complete.
 | `aligned/` | Minimap2 BAMs |
 | `tagged/` | BAMs with `CB`/`UB` tags |
 | `tagged_cells/` | BAM subset to called cells |
-| `flames/` | FLAMES isoform discovery and counts |
-| `isoquant/` | IsoQuant SC count matrices and read assignments |
+| `isoquant/` | IsoQuant SC discovery + count matrices and read assignments |
+| `flames/` | Optional FLAMES isoform discovery and counts (`make flames`) |
 | `splice_matrices/` | AnnData (`.h5ad`) and barcode QC TSV |
 | `combined_counts/` | Gene-level spliced + unspliced matrix |
 | `velocity/` | Separate spliced/unspliced matrices for scVelo |
@@ -357,7 +376,6 @@ my_sclong_run/
 ├── aligned/
 ├── tagged/
 ├── tagged_cells/
-├── flames/
 ├── isoquant/
 ├── splice_matrices/
 │   ├── PBMC1.gene.h5ad
@@ -383,8 +401,9 @@ my_sclong_run/
   chemistry with your 10x kit documentation.
 - **Reference/annotation mismatch:** minimap2, FLAMES, and IsoQuant all
   require the same genome build and compatible GTF.
-- **OOM during sort/FLAMES/IsoQuant:** Lower `minimap2.sort_memory`,
-  `flames.memory`, or `isoquant.memory` in `pipeline.yml`.
+- **OOM during sort/IsoQuant:** Lower `minimap2.sort_memory` or
+  `isoquant.memory` in `pipeline.yml`. For FLAMES OOMs on large samples,
+  skip FLAMES and rely on IsoQuant (`make full`).
 - **CTAT fusion failures:** The CTAT genome lib annotation version must
   match your pipeline GTF; prebuilt v44 libs may not match Gencode v46.
 
