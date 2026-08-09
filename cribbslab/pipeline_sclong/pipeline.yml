@@ -156,18 +156,21 @@ combined:
     memory: 32G
 
 # -----------------------------------------------
-# RNA velocity settings (separate spliced/unspliced)
+# Legacy R velocity counting (optional)
 # -----------------------------------------------
-
-# These settings generate SEPARATE spliced and unspliced matrices
-# for use with scVelo or velocyto trajectory analysis.
+# Opt-in: set run: true and ``make velocity``. Not part of ``make full``.
+# Prefer IsoQuant splice_matrices/ (UMI-deduplicated, scales better).
+# velocity_counts.R uses scanBam() and often OOMs on large nuclei BAMs.
 
 velocity:
+    # Must be true to run ``make velocity``
+    run: false
+
     # GTF file (should include intron annotations for velocity)
     gtf: /path/to/gencode.v46.annotation.gtf.gz
 
-    # Memory for velocity counting
-    memory: 32G
+    # Memory for velocity counting (raise further if you opt in on large BAMs)
+    memory: 64G
 
 # -----------------------------------------------
 # QC settings

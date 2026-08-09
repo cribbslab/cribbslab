@@ -90,9 +90,9 @@ Processing steps
    subset BAM to true cells, quantify with --barcoded_bam, derive
    spliced transcript and unspliced gene AnnData matrices, splice QC
 5. Combined gene-level counting (spliced + unspliced)
-6. Separate velocity matrices (spliced/unspliced for scVelo)
-7. QC and MultiQC reporting (including splice-proportion outlier table)
-8. (Opt-in) FLAMES from FASTQ for smaller samples (`make flames`)
+6. QC and MultiQC reporting (including splice-proportion outlier table)
+7. (Opt-in) FLAMES from FASTQ for smaller samples (`make flames`)
+8. (Opt-in) Legacy R velocity counting (`make velocity`)
 9. (Opt-in) ctat-LR-fusion fusion calling on tagged BAMs (`make fusions`)
 10. (Opt-in) Targeted translocation window scan per cell (`make targeted_fusions`)
 11. (Opt-in) Per-cell longshot SNV calling + genotype matrix (`make variants`)
@@ -649,26 +649,25 @@ def count_genes(infile, outfile):
 def count_velocity(infile, outfile):
     """
     Generate SEPARATE spliced and unspliced count matrices for RNA velocity.
-    
-    Unlike combined_counts which sums spliced + unspliced, this step keeps
-    them separate for use with scVelo or velocyto for trajectory analysis.
-    
-    Uses exon/intron annotations to classify reads:
-    - Spliced: reads with splice junctions (N in CIGAR) overlapping exons
-    - Unspliced: reads without splice junctions OR overlapping introns
-    
-    Output: RDS file with spliced, unspliced, and ambiguous matrices
 
-    Note: the IsoQuant route (build_splice_matrices) provides an alternative
-    spliced/unspliced product derived from UMI-deduplicated molecule
-    assignments and is the recommended source for downstream velocity analysis.
-    This task is retained for compatibility.
+    Opt-in only: set velocity.run: true and ``make velocity``. Prefer
+    IsoQuant ``build_splice_matrices`` (included in ``make full``) — that
+    path is UMI-deduplicated and does not load the full BAM into R.
+
+    This legacy script uses scanBam() and OOMs on large nuclei libraries.
     """
+
+    if not PARAMS.get("velocity_run", False):
+        raise ValueError(
+            "velocity_run is false. Set velocity.run: true in pipeline.yml "
+            "and run ``make velocity``. Prefer IsoQuant splice matrices "
+            "(``make full`` / ``make quantify``) for high cell counts."
+        )
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
     gtf = PARAMS["velocity_gtf"]
-    job_memory = PARAMS.get("velocity_memory", "32G")
+    job_memory = PARAMS.get("velocity_memory", "64G")
 
     statement = """
         Rscript %(R_SRC_PATH)s/velocity_counts.R
@@ -1301,17 +1300,17 @@ def multiqc(infiles, outfile):
 # Pipeline targets
 # -----------------------------------------------
 
-@follows(count_genes, count_velocity, multiqc,
+@follows(count_genes, multiqc,
          quantify_isoquant, build_splice_matrices, qc_splice_proportion,
          generate_isoquant_report)
 def full():
     """
     Run the complete pipeline: alignment, IsoQuant discovery/quantification,
-    gene counts, velocity matrices, and QC.
+    gene counts, spliced/unspliced matrices, and QC.
 
-    IsoQuant (from tagged BAM) is the default transcript discovery route and
-    scales better to high cell counts. FLAMES is opt-in via ``make flames``
-    for smaller samples (set flames.run: true).
+    IsoQuant (from tagged BAM) is the default transcript discovery and
+    velocity-matrix route. FLAMES and legacy R velocity counting are opt-in
+    (``make flames`` / ``make velocity``).
     """
     pass
 
@@ -1335,15 +1334,27 @@ def flames():
     pass
 
 
-@follows(count_genes, count_velocity,
+@follows(count_genes,
          quantify_isoquant, build_splice_matrices, qc_splice_proportion)
 def quantify():
     """
     Run quantification only (requires aligned BAMs upstream).
 
     IsoQuant from the tagged BAM (UMI-deduplicated spliced/unspliced matrices
-    and isoform discovery), plus featureCounts gene counts and velocity
-    matrices. FLAMES is not included; use ``make flames`` separately.
+    and isoform discovery), plus featureCounts gene counts. FLAMES and
+    legacy R velocity counting are not included; use ``make flames`` /
+    ``make velocity`` separately if needed.
+    """
+    pass
+
+
+@follows(count_velocity)
+def velocity():
+    """
+    Opt-in legacy R velocity counting (set velocity.run: true).
+
+    Prefer IsoQuant splice matrices from ``make full`` / ``make quantify``;
+    this path loads the full BAM into memory and can OOM on large samples.
     """
     pass
 

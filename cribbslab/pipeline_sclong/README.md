@@ -216,10 +216,11 @@ Common options:
 
 | Target | What it runs |
 |--------|----------------|
-| `full` | End-to-end: BLAZE → align → tag → IsoQuant → matrices → MultiQC → IsoQuant HTML report |
+| `full` | End-to-end: BLAZE → align → tag → IsoQuant → splice matrices → MultiQC → IsoQuant HTML report |
 | `align` | BLAZE, minimap2 alignment, BAM tagging only |
-| `quantify` | IsoQuant + featureCounts + velocity + splice matrices (needs alignment upstream) |
+| `quantify` | IsoQuant + featureCounts + splice matrices (needs alignment upstream) |
 | `flames` | Opt-in FLAMES from FASTQ (set `flames.run: true`; prefer for smaller samples) |
+| `velocity` | Opt-in legacy R velocity counting (set `velocity.run: true`; prefer IsoQuant matrices) |
 | `qc` | NanoPlot, barcode summary, MultiQC, IsoQuant HTML report |
 | `isoquant_report` | Regenerate IsoQuant static HTML only |
 | `fusions` | ctat-LR-fusion + per-read/per-fusion tables (opt-in; set `fusion.call_fusions: true`) |
