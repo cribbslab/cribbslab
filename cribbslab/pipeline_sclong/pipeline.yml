@@ -207,28 +207,32 @@ tag:
     memory: 32G
 
 # -----------------------------------------------
-# IsoQuant settings (default discovery + quantification)
+# IsoQuant settings (single-cell quantification)
 # -----------------------------------------------
 
 # Primary transcript route for ``make full`` / ``make quantify``.
-# Consumes the tagged genome BAM (CB/UB from BLAZE), does UMI dedup in
-# single-cell mode, and by default constructs transcript models (novel
-# isoforms of annotated genes). Novel *gene* discovery is not available
-# in SC mode — use bulk IsoQuant or opt-in FLAMES for that.
+# Consumes the tagged genome BAM (CB/UB from BLAZE) and runs IsoQuant in
+# single-cell mode with UMI deduplication.
+#
+# Defaults match a memory-conscious quantification-only run:
+#   --analysis quantification
+#   --large_output none
+#   --umi_threads 1
+#   --process_threads 1
+#
+# For splice-matrix building (build_splice_matrices) set large_output to
+# read_assignments so isoquant_matrices.py can label spliced/unspliced reads.
+#
+# After an OOM/interrupted run, set resume: true and rerun make quantify.
+# Only --output and --threads may change on resume.
 #
 # Note: IsoQuant single-cell UMI deduplication is believed to be
 # edit-distance aware (Levenshtein ED3 for tenX_v3). This has not been
-# verified against all installed versions; confirm before relying on it
-# for low-UMI-diversity libraries.
-#
-# TODO: confirm whether the installed IsoQuant's UMI deduplication is
-# truly edit-distance aware. ONT UMI error means exact-match-only dedup
-# would inflate counts. The pre_collapse hook below (currently disabled)
-# is reserved for a future upstream correction step if needed.
+# verified against all installed versions.
 
 isoquant:
     # Path or name of the IsoQuant executable
-    binary: isoquant.py
+    binary: isoquant
 
     # Single-cell mode. Controls UMI edit-distance deduplication threshold.
     # IsoQuant has no dedicated 10x 5' gene expression mode, but because
@@ -249,15 +253,25 @@ isoquant:
     # Path to annotation GTF file (used for --genedb)
     gtf: /path/to/gencode.v46.annotation.gtf.gz
 
-    # Number of threads
-    threads: 8
+    # IsoQuant --threads (parallel chromosome processing)
+    threads: 4
 
-    # Memory per job
+    # IsoQuant --umi_threads and --process_threads (lower = less peak RAM)
+    umi_threads: 1
+    process_threads: 1
+
+    # Memory per job (scheduler hint)
     memory: 64G
 
-    # Skip transcript model construction (reference quantification only).
-    # Leave false so IsoQuant discovers novel isoforms of annotated genes.
-    no_model_construction: false
+    # IsoQuant --analysis: quantification (reference only) or model_construction
+    analysis: quantification
+
+    # IsoQuant --large_output: none | read_assignments | read_info | allinfo | ...
+    # Use read_assignments when running build_splice_matrices downstream.
+    large_output: none
+
+    # Continue an interrupted run (only --output and --threads may change)
+    resume: false
 
     # BAM tag carrying the cell barcode (must match tag written by tag_bam_barcodes.R)
     barcode_tag: CB

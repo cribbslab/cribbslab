@@ -341,7 +341,7 @@ directory as tasks complete.
 | `aligned/` | Minimap2 BAMs |
 | `tagged/` | BAMs with `CB`/`UB` tags |
 | `tagged_cells/` | BAM subset to called cells |
-| `isoquant/` | IsoQuant SC discovery + count matrices and read assignments |
+| `isoquant/` | IsoQuant SC count matrices (MTX) |
 | `flames/` | Optional FLAMES isoform discovery and counts (`make flames`) |
 | `splice_matrices/` | AnnData (`.h5ad`) and barcode QC TSV |
 | `combined_counts/` | Gene-level spliced + unspliced matrix |
@@ -394,6 +394,58 @@ my_sclong_run/
 
 ---
 
+## IsoQuant settings
+
+Default IsoQuant invocation (from `pipeline.yml`):
+
+```yaml
+isoquant:
+  binary: isoquant
+  mode: tenX_v3
+  threads: 4
+  umi_threads: 1          # lower peak RAM during UMI dedup
+  process_threads: 1
+  analysis: quantification   # reference quant only; no model construction
+  large_output: none         # minimal intermediates; use read_assignments for splice matrices
+  resume: false              # set true to continue after OOM/crash
+  memory: 64G
+```
+
+Equivalent manual command:
+
+```bash
+isoquant \
+  --reference GRCh38.primary_assembly.genome.fa \
+  --genedb gencode.v44.annotation.gtf \
+  --complete_genedb \
+  --bam tagged_cells/SAMPLE.cells.bam \
+  --data_type nanopore \
+  --mode tenX_v3 \
+  --barcoded_bam \
+  --barcode_tag CB \
+  --umi_tag UB \
+  --strip_barcode_suffix \
+  --analysis quantification \
+  --counts_format mtx \
+  --large_output none \
+  --threads 4 \
+  --umi_threads 1 \
+  --process_threads 1 \
+  --output isoquant/SAMPLE \
+  --prefix SAMPLE
+```
+
+To resume after interruption:
+
+```bash
+# pipeline.yml: isoquant.resume: true
+cribbslab sclong make quantify --local -j 1
+# or manually:
+isoquant --resume --output isoquant/SAMPLE --threads 1
+```
+
+---
+
 ## Troubleshooting
 
 - **No samples found:** FASTQs must sit in the project root (not subfolders)
@@ -402,9 +454,16 @@ my_sclong_run/
   chemistry with your 10x kit documentation.
 - **Reference/annotation mismatch:** minimap2, FLAMES, and IsoQuant all
   require the same genome build and compatible GTF.
-- **OOM during sort/IsoQuant:** Lower `minimap2.sort_memory` or
-  `isoquant.memory` in `pipeline.yml`. For FLAMES OOMs on large samples,
-  skip FLAMES and rely on IsoQuant (`make full`).
+- **OOM during sort/IsoQuant:** Lower `isoquant.threads`, set
+  `isoquant.umi_threads: 1` and `isoquant.process_threads: 1`, use
+  `isoquant.analysis: quantification`, and set `isoquant.large_output: none`.
+  After a crash, set `isoquant.resume: true` and rerun `make quantify`.
+  For FLAMES OOMs on large samples, skip FLAMES and rely on IsoQuant.
+- **IsoQuant BrokenProcessPool:** Worker killed by OOM during per-chromosome
+  UMI dedup. Resume with `isoquant.resume: true` and `isoquant.threads: 1`.
+- **Splice matrices missing after IsoQuant:** `large_output: none` skips
+  read assignment files. Set `isoquant.large_output: read_assignments` before
+  rerunning IsoQuant if you need spliced/unspliced AnnData matrices.
 - **CTAT fusion failures:** The CTAT genome lib annotation version must
   match your pipeline GTF; prebuilt v44 libs may not match Gencode v46.
 

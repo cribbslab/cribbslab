@@ -409,13 +409,16 @@ def quantify_isoquant(infile, outfile):
     BLAZE/tag_bam_barcodes.R (--barcoded_bam). UMI-based deduplication is
     performed natively by IsoQuant within each barcode x gene group.
 
-    IsoQuant is the default discovery and quantification route for high cell
-    counts. Model construction (novel isoforms of annotated genes) is on by
-    default; set isoquant.no_model_construction: true to quantify against the
-    reference only. Novel *gene* discovery is not performed in single-cell
-    mode (IsoQuant limitation).
+    Default settings use ``--analysis quantification`` (reference quant only,
+    no transcript model construction), ``--large_output none`` (minimal
+    intermediate files), and low UMI/process thread counts to limit RAM on
+    high-nuclei libraries. Set ``isoquant.large_output`` to include
+    ``read_assignments`` when downstream splice-matrix building is required.
 
     Optional FLAMES (make flames) remains available for smaller samples.
+
+    Set ``isoquant.resume: true`` to continue an interrupted run; only
+    ``--output`` and ``--threads`` may be changed on resume.
 
     Strand: minimap2 upstream uses -uf (forward-strand only). IsoQuant
     inherits this orientation from the BAM. Intronic reads on the wrong
@@ -431,10 +434,10 @@ def quantify_isoquant(infile, outfile):
     sample = os.path.basename(os.path.dirname(outfile))
     outdir = os.path.dirname(outfile)
 
-    job_threads = PARAMS.get("isoquant_threads", 8)
+    job_threads = PARAMS.get("isoquant_threads", 4)
     job_memory = PARAMS.get("isoquant_memory", "64G")
 
-    binary = PARAMS.get("isoquant_binary", "isoquant.py")
+    binary = PARAMS.get("isoquant_binary", "isoquant")
     mode = PARAMS.get("isoquant_mode", "tenX_v3")
     gtf = PARAMS.get("isoquant_gtf", PARAMS.get("flames_gtf",
                      PARAMS.get("featurecounts_gtf", "")))
@@ -442,31 +445,45 @@ def quantify_isoquant(infile, outfile):
     barcode_tag = PARAMS.get("isoquant_barcode_tag", "CB")
     umi_tag = PARAMS.get("isoquant_umi_tag", "UB")
     strip_suffix = PARAMS.get("isoquant_strip_barcode_suffix", True)
-    no_model = PARAMS.get("isoquant_no_model_construction", False)
+    analysis = PARAMS.get("isoquant_analysis", "quantification")
+    large_output = PARAMS.get("isoquant_large_output", "none")
+    umi_threads = PARAMS.get("isoquant_umi_threads", 1)
+    process_threads = PARAMS.get("isoquant_process_threads", 1)
+    resume = PARAMS.get("isoquant_resume", False)
 
     strip_opt = "--strip_barcode_suffix" if strip_suffix else ""
-    model_opt = "--no_model_construction" if no_model else ""
 
-    statement = """
-        %(binary)s
-        --reference %(fasta)s
-        --genedb %(gtf)s
-        --complete_genedb
-        --bam %(infile)s
-        --data_type nanopore
-        --mode %(mode)s
-        --barcoded_bam
-        --barcode_tag %(barcode_tag)s
-        --umi_tag %(umi_tag)s
-        %(strip_opt)s
-        %(model_opt)s
-        --count_exons
-        --counts_format mtx
-        -o %(outdir)s
-        -p %(sample)s
-        -t %(job_threads)s
-        && touch %(outfile)s
-    """
+    if resume:
+        statement = """
+            %(binary)s
+            --resume
+            --output %(outdir)s
+            --threads %(job_threads)s
+            && touch %(outfile)s
+        """
+    else:
+        statement = """
+            %(binary)s
+            --reference %(fasta)s
+            --genedb %(gtf)s
+            --complete_genedb
+            --bam %(infile)s
+            --data_type nanopore
+            --mode %(mode)s
+            --barcoded_bam
+            --barcode_tag %(barcode_tag)s
+            --umi_tag %(umi_tag)s
+            %(strip_opt)s
+            --analysis %(analysis)s
+            --counts_format mtx
+            --large_output %(large_output)s
+            --threads %(job_threads)s
+            --umi_threads %(umi_threads)s
+            --process_threads %(process_threads)s
+            --output %(outdir)s
+            --prefix %(sample)s
+            && touch %(outfile)s
+        """
 
     P.run(statement)
 
