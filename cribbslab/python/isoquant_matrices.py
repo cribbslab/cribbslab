@@ -133,18 +133,59 @@ def find_grouped_counts(isoquant_dir, sample, feature):
     )
 
 
+def _scan_header(path):
+    """
+    Locate the tab-separated column header in an IsoQuant assignment file.
+
+    Returns (col_names, skiprows) where skiprows is the number of lines before
+    the first data row.
+    """
+    preview = []
+    with _open(path) as fh:
+        skip = 0
+        for raw_line in fh:
+            skip += 1
+            if len(preview) < 5:
+                preview.append(raw_line.rstrip("\n")[:200])
+            parts = raw_line.lstrip("#").strip().split("\t")
+            if len(parts) > 1:
+                col_names = [p.lstrip("#").strip() for p in parts]
+                return col_names, skip
+
+    size = os.path.getsize(path)
+    preview_txt = "\n  ".join(preview) if preview else "(file empty)"
+    raise ValueError(
+        "Could not find a tab-separated header line in: {} ({} bytes). "
+        "First lines:\n  {}\n"
+        "The file may be empty or from an interrupted IsoQuant run. "
+        "Re-run IsoQuant with isoquant.large_output: read_info (or "
+        "read_assignments) in pipeline.yml.".format(path, size, preview_txt)
+    )
+
+
+def _assignment_file_usable(path):
+    """Return True if path looks like a non-empty IsoQuant assignment TSV."""
+    try:
+        _scan_header(path)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def find_read_info(isoquant_dir, sample):
     """
-    Locate the per-read assignment file.
+    Locate a usable per-read assignment file.
 
     Newer IsoQuant produces read_info.tsv(.gz) with native barcode/umi cols.
-    Older releases (and the current --barcoded_bam path observed in the wild)
-    produce read_assignments.tsv(.gz) without native barcode cols; barcodes
-    are recovered from the UMI_filtered allinfo file instead.
+    Older releases produce read_assignments.tsv(.gz); barcodes are recovered
+    from the UMI_filtered allinfo file when needed.
+
+    Skips empty or truncated files (common after OOM/interrupted runs).
 
     Returns (path, format_name) where format_name is 'read_info' or
     'read_assignments'.
     """
+    candidates = []
     for fmt, patterns in [
         ("read_info", [
             "{}.read_info.tsv.gz".format(sample),
@@ -161,8 +202,26 @@ def find_read_info(isoquant_dir, sample):
     ]:
         path = _find_file(isoquant_dir, patterns)
         if path:
-            log.info("Found per-read file (%s): %s", fmt, path)
+            candidates.append((path, fmt))
+
+    for path, fmt in candidates:
+        if _assignment_file_usable(path):
+            log.info("Found usable per-read file (%s): %s", fmt, path)
             return path, fmt
+        log.warning(
+            "Skipping unusable per-read file (%s): %s "
+            "(empty or missing header — likely incomplete IsoQuant output)",
+            fmt, path,
+        )
+
+    if candidates:
+        paths = ", ".join(p for p, _ in candidates)
+        raise FileNotFoundError(
+            "Per-read assignment files exist but none are readable in {}: {}. "
+            "Re-run IsoQuant with isoquant.large_output: read_info.".format(
+                isoquant_dir, paths
+            )
+        )
     raise FileNotFoundError(
         "No read_info or read_assignments file found in {}".format(isoquant_dir)
     )
@@ -285,25 +344,7 @@ def load_read_labels(path, fmt, allinfo_path=None):
     """
     log.info("Loading per-read assignments (%s): %s", fmt, path)
 
-    # IsoQuant files may start with one or more single-field comment lines
-    # (e.g. "# IsoQuant ...") before the real tab-separated header line
-    # (which also starts with '#', e.g. "#read_id\tchr\t...").
-    # Scan forward until we find the line with multiple tab-separated fields;
-    # that is the column-name row. Count lines consumed so skiprows is correct.
-    with _open(path) as fh:
-        col_names = None
-        skip = 0
-        for raw_line in fh:
-            skip += 1
-            parts = raw_line.lstrip("#").strip().split("\t")
-            if len(parts) > 1:
-                col_names = parts
-                break
-
-    if col_names is None:
-        raise ValueError(
-            "Could not find a tab-separated header line in: {}".format(path)
-        )
+    col_names, skip = _scan_header(path)
     log.info("Detected %d columns (skipped %d header/comment lines): %s",
              len(col_names), skip, col_names[:6])
 
@@ -315,6 +356,13 @@ def load_read_labels(path, fmt, allinfo_path=None):
         dtype=str,
         low_memory=False,
     )
+
+    if df.empty:
+        raise ValueError(
+            "Per-read assignment file has a header but no data rows: {}".format(
+                path
+            )
+        )
 
     # Normalise column names (strip any residual leading #/whitespace)
     df.columns = [c.lstrip("#").strip() for c in df.columns]
@@ -754,6 +802,56 @@ def build_gene_anndata(gene_total_mat, gene_features, gene_barcodes,
     return adata
 
 
+def build_gene_anndata_total_only(gene_total_mat, gene_features, gene_barcodes):
+    """Build gene AnnData from native counts when per-read labels are unavailable."""
+    log.warning(
+        "Building total-only gene AnnData (no spliced/unspliced split). "
+        "Set isoquant.large_output: read_info and re-run IsoQuant for "
+        "splice-stratified layers."
+    )
+    zero = sp.csr_matrix(
+        gene_total_mat.shape, dtype=np.float32,
+    )
+    adata = ad.AnnData(
+        X=gene_total_mat.T.tocsr(),
+        obs=pd.DataFrame(index=gene_barcodes),
+        var=pd.DataFrame(index=gene_features),
+    )
+    adata.layers["total"] = gene_total_mat.T.tocsr()
+    adata.layers["spliced"] = zero.T.tocsr()
+    adata.layers["unspliced"] = zero.T.tocsr()
+    return adata
+
+
+def build_tx_anndata_total_only(tx_total_mat, tx_features, tx_barcodes):
+    """Build transcript AnnData from native counts when labels are unavailable."""
+    return ad.AnnData(
+        X=tx_total_mat.T.tocsr(),
+        obs=pd.DataFrame(index=tx_barcodes),
+        var=pd.DataFrame(index=tx_features),
+    )
+
+
+def build_barcode_qc_total_only(gene_total_mat, gene_features, gene_barcodes):
+    """Per-barcode QC from native gene matrix only (no splice labels)."""
+    mat_csc = gene_total_mat.tocsc()
+    rows = []
+    for i, bc in enumerate(gene_barcodes):
+        col_vec = mat_csc.getcol(i)
+        total_umis = float(col_vec.sum())
+        n_genes = int((col_vec > 0).sum())
+        rows.append({
+            "barcode": bc,
+            "total_umis": total_umis,
+            "spliced_umis": 0.0,
+            "unspliced_umis": 0.0,
+            "ambiguous_umis": 0.0,
+            "unspliced_fraction": 0.0,
+            "n_genes": n_genes,
+        })
+    return pd.DataFrame(rows)
+
+
 def project_tx_to_gene(tx_spliced_mat, tx_features, gene_features,
                        isoquant_dir, sample):
     """
@@ -941,19 +1039,30 @@ def main(argv=None):
 
     all_barcodes = sorted(set(gene_barcodes) | set(tx_barcodes))
 
-    # ---- Load per-read assignments ------------------------------------------
+    # ---- Load per-read assignments (optional for splice labelling) ----------
     allinfo_path = find_allinfo(args.isoquant_dir)
-    read_path, read_fmt = find_read_info(args.isoquant_dir, args.sample)
-    reads_df = load_read_labels(read_path, read_fmt, allinfo_path)
+    reads_df = None
+    try:
+        read_path, read_fmt = find_read_info(args.isoquant_dir, args.sample)
+        reads_df = load_read_labels(read_path, read_fmt, allinfo_path)
+    except (FileNotFoundError, ValueError) as exc:
+        log.warning(
+            "Per-read assignments unavailable (%s). "
+            "Writing total-only matrices from native IsoQuant counts.",
+            exc,
+        )
 
-    # ---- Collapse to molecules -----------------------------------------------
-    mol_df = collapse_to_molecules(reads_df)
-
-    # ---- Gene-level AnnData (total/spliced/unspliced layers) ----------------
-    gene_adata = build_gene_anndata(
-        gene_total_mat, gene_features, gene_barcodes,
-        mol_df, args.tolerance,
-    )
+    if reads_df is not None:
+        mol_df = collapse_to_molecules(reads_df)
+        gene_adata = build_gene_anndata(
+            gene_total_mat, gene_features, gene_barcodes,
+            mol_df, args.tolerance,
+        )
+    else:
+        mol_df = None
+        gene_adata = build_gene_anndata_total_only(
+            gene_total_mat, gene_features, gene_barcodes,
+        )
     gene_h5ad = os.path.join(args.outdir, "{}.gene.h5ad".format(args.sample))
     gene_adata.write_h5ad(gene_h5ad, compression="gzip")
     log.info("Written: %s", gene_h5ad)
@@ -970,21 +1079,24 @@ def main(argv=None):
         )
 
     # ---- Transcript-level AnnData (spliced only) ----------------------------
-    # Build spliced transcript matrix from mol_df using transcript assignments.
-    # Collapse by isoform_id (not by renaming onto gene_id, which would create
-    # a duplicate column and break groupby).
-    if "isoform_id" in reads_df.columns:
+    if reads_df is not None and "isoform_id" in reads_df.columns:
         mol_tx_df = collapse_to_molecules(reads_df, feature_col="isoform_id")
         tx_spliced_mat = build_molecule_matrix(
             mol_tx_df, "spliced", tx_features, tx_barcodes)
     else:
-        log.warning(
-            "isoform_id column not found in per-read file; "
-            "transcript-level spliced matrix will use native TX total matrix."
-        )
+        if reads_df is not None:
+            log.warning(
+                "isoform_id column not found in per-read file; "
+                "transcript matrix uses native TX totals."
+            )
         tx_spliced_mat = tx_total_mat
 
-    tx_adata = build_tx_anndata(tx_spliced_mat, tx_features, tx_barcodes)
+    if reads_df is not None:
+        tx_adata = build_tx_anndata(tx_spliced_mat, tx_features, tx_barcodes)
+    else:
+        tx_adata = build_tx_anndata_total_only(
+            tx_total_mat, tx_features, tx_barcodes,
+        )
     tx_h5ad = os.path.join(
         args.outdir, "{}.transcript.spliced.h5ad".format(args.sample))
     tx_adata.write_h5ad(tx_h5ad, compression="gzip")
@@ -996,7 +1108,12 @@ def main(argv=None):
     )
 
     # ---- Per-barcode QC table -----------------------------------------------
-    qc = build_barcode_qc(mol_df, gene_total_mat, gene_features, gene_barcodes)
+    if mol_df is not None:
+        qc = build_barcode_qc(mol_df, gene_total_mat, gene_features, gene_barcodes)
+    else:
+        qc = build_barcode_qc_total_only(
+            gene_total_mat, gene_features, gene_barcodes,
+        )
     qc_path = os.path.join(
         args.outdir, "{}.barcode_qc.tsv".format(args.sample))
     qc.to_csv(qc_path, sep="\t", index=False)

@@ -406,7 +406,7 @@ isoquant:
   umi_threads: 1          # lower peak RAM during UMI dedup
   process_threads: 1
   analysis: quantification   # reference quant only; no model construction
-  large_output: none         # minimal intermediates; use read_assignments for splice matrices
+  large_output: read_info    # required for spliced/unspliced matrices; use none for counts-only
   resume: false              # set true to continue after OOM/crash
   memory: 64G
 ```

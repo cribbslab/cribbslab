@@ -266,9 +266,10 @@ isoquant:
     # IsoQuant --analysis: quantification (reference only) or model_construction
     analysis: quantification
 
-    # IsoQuant --large_output: none | read_assignments | read_info | allinfo | ...
-    # Use read_assignments when running build_splice_matrices downstream.
-    large_output: none
+    # IsoQuant --large_output: none | read_info | read_assignments | allinfo | ...
+    # read_info is required for spliced/unspliced AnnData layers. Use none only
+    # for count-matrix-only runs (isoquant_matrices falls back to totals).
+    large_output: read_info
 
     # Continue an interrupted run (only --output and --threads may change)
     resume: false
