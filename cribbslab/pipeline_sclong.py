@@ -14,10 +14,10 @@ Supports both 10x 5' and 3' chemistries.
 Key features:
 - Cell barcode and UMI extraction using BLAZE (supports 5' and 3' kits)
 - Splice-aware alignment with minimap2
-- Transcript discovery and quantification using FLAMES (from FASTQ)
-- Transcript quantification using IsoQuant (from tagged BAM, concurrent with FLAMES):
+- Transcript discovery and quantification using IsoQuant (from tagged BAM):
   spliced transcript-level and unspliced gene-level AnnData matrices,
   per-barcode splicing-proportion QC surfaced in MultiQC
+- Optional FLAMES (from FASTQ) for smaller samples — opt-in via ``make flames``
 - Combined gene-level and transcript-level count matrices (spliced + unspliced)
 - Separate spliced/unspliced matrices for RNA velocity analysis
 - Handling of both spliced and unspliced reads (important for nuclei)
@@ -56,9 +56,9 @@ Requirements
 * BLAZE - for cell barcode assignment (handles 5' and 3' kits)
 * minimap2 - for splice-aware alignment
 * samtools - for BAM processing
-* FLAMES (R package) - for single-cell isoform analysis
-* IsoQuant - for single-cell transcript quantification from tagged BAM
+* IsoQuant - for single-cell transcript discovery and quantification
 * featureCounts - for gene-level counting
+* FLAMES (R package) - optional, smaller samples only (``make flames``)
 
 Pipeline output
 ===============
@@ -70,10 +70,12 @@ Pipeline output
 * Spliced transcript AnnData and unspliced gene AnnData (splice_matrices/)
 * Per-barcode splicing-proportion QC, MultiQC custom content (qc_splice/)
 * Combined gene-level count matrix - spliced + unspliced (combined_counts/)
-* Transcript-level count matrix (flames/)
 * Separate spliced/unspliced matrices for velocity (velocity/)
-* Novel transcript GTF (flames/)
+* Optional FLAMES isoform discovery / counts (flames/) — ``make flames``
 * QC reports (multiqc/)
+* Fusion predictions (fusions/) — opt-in via ``make fusions``
+* Targeted translocation scan (targeted_fusions/) — opt-in via ``make targeted_fusions``
+* Per-cell SNV VCF + genotype matrix (snv/) — opt-in via ``make variants``
 
 Output count matrices include BOTH spliced and unspliced reads to capture
 the full transcriptome from nuclei, where unspliced pre-mRNA is abundant.
@@ -84,13 +86,16 @@ Processing steps
 1. BLAZE barcode assignment from long reads (kit-aware: 5' or 3')
 2. Minimap2 splice-aware alignment
 3. BAM tagging with cell barcodes and UMIs
-4a. FLAMES transcript discovery and quantification (from FASTQ)
-4b. IsoQuant transcript quantification (from tagged BAM, concurrent with 4a):
-    subset BAM to true cells, quantify with --barcoded_bam, derive
-    spliced transcript and unspliced gene AnnData matrices, splice QC
+4. IsoQuant transcript discovery and quantification (from tagged BAM):
+   subset BAM to true cells, quantify with --barcoded_bam, derive
+   spliced transcript and unspliced gene AnnData matrices, splice QC
 5. Combined gene-level counting (spliced + unspliced)
-6. Separate velocity matrices (spliced/unspliced for scVelo)
-7. QC and MultiQC reporting (including splice-proportion outlier table)
+6. QC and MultiQC reporting (including splice-proportion outlier table)
+7. (Opt-in) FLAMES from FASTQ for smaller samples (`make flames`)
+8. (Opt-in) Legacy R velocity counting (`make velocity`)
+9. (Opt-in) ctat-LR-fusion fusion calling on tagged BAMs (`make fusions`)
+10. (Opt-in) Targeted translocation window scan per cell (`make targeted_fusions`)
+11. (Opt-in) Per-cell longshot SNV calling + genotype matrix (`make variants`)
 
 Code
 ====
@@ -280,19 +285,23 @@ def align_minimap2(infile, outfile):
            r"tagged/\1.tagged.bam")
 def tag_bam_with_barcodes(infile, outfile):
     """
-    Add cell barcode (CB) and UMI (UB) tags to BAM file
-    using BLAZE barcode assignments.
-    
+    Add cell barcode (CB) and UMI (UB) tags to BAM file using BLAZE step-3
+    read-to-whitelist assignment (error-corrected CB/UB), not raw putative_bc.
+
     Tags are added in 10x-compatible format:
-    - CB:Z: cell barcode
-    - UB:Z: UMI sequence
+    - CB:Z: corrected cell barcode (whitelist sequence)
+    - UB:Z: UMI sequence (INDEL-adjusted when applicable)
     """
 
-    # Get corresponding BLAZE output
+    # Get corresponding BLAZE outputs
     basename = os.path.basename(infile).replace(".bam", "")
     blaze_bc = "blaze/{}_putative_bc.csv".format(basename)
+    blaze_whitelist = "blaze/{}_whitelist.csv".format(basename)
 
-    job_memory = PARAMS.get("tag_memory", "16G")
+    # Assignment is CPU-bound (per-read whitelist edit distance). Give it
+    # threads and enough RAM for the awk barcode map + BAM stream.
+    job_threads = PARAMS.get("tag_threads", 8)
+    job_memory = PARAMS.get("tag_memory", "32G")
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
@@ -300,7 +309,9 @@ def tag_bam_with_barcodes(infile, outfile):
         Rscript %(R_SRC_PATH)s/tag_bam_barcodes.R
         --bam %(infile)s
         --barcodes %(blaze_bc)s
+        --whitelist %(blaze_whitelist)s
         --output %(outfile)s
+        --threads %(job_threads)s
         && samtools index %(outfile)s
     """
 
@@ -398,10 +409,16 @@ def quantify_isoquant(infile, outfile):
     BLAZE/tag_bam_barcodes.R (--barcoded_bam). UMI-based deduplication is
     performed natively by IsoQuant within each barcode x gene group.
 
-    IsoQuant runs concurrently with FLAMES (which operates from FASTQ).
-    These are independent quantification routes and produce complementary
-    outputs: IsoQuant provides transcript-level spliced and gene-level
-    unspliced matrices derived here; FLAMES provides novel isoform discovery.
+    Default settings use ``--analysis quantification`` (reference quant only,
+    no transcript model construction), ``--large_output none`` (minimal
+    intermediate files), and low UMI/process thread counts to limit RAM on
+    high-nuclei libraries. Set ``isoquant.large_output`` to include
+    ``read_assignments`` when downstream splice-matrix building is required.
+
+    Optional FLAMES (make flames) remains available for smaller samples.
+
+    Set ``isoquant.resume: true`` to continue an interrupted run; only
+    ``--output`` and ``--threads`` may be changed on resume.
 
     Strand: minimap2 upstream uses -uf (forward-strand only). IsoQuant
     inherits this orientation from the BAM. Intronic reads on the wrong
@@ -417,10 +434,10 @@ def quantify_isoquant(infile, outfile):
     sample = os.path.basename(os.path.dirname(outfile))
     outdir = os.path.dirname(outfile)
 
-    job_threads = PARAMS.get("isoquant_threads", 8)
+    job_threads = PARAMS.get("isoquant_threads", 4)
     job_memory = PARAMS.get("isoquant_memory", "64G")
 
-    binary = PARAMS.get("isoquant_binary", "isoquant.py")
+    binary = PARAMS.get("isoquant_binary", "isoquant")
     mode = PARAMS.get("isoquant_mode", "tenX_v3")
     gtf = PARAMS.get("isoquant_gtf", PARAMS.get("flames_gtf",
                      PARAMS.get("featurecounts_gtf", "")))
@@ -428,28 +445,45 @@ def quantify_isoquant(infile, outfile):
     barcode_tag = PARAMS.get("isoquant_barcode_tag", "CB")
     umi_tag = PARAMS.get("isoquant_umi_tag", "UB")
     strip_suffix = PARAMS.get("isoquant_strip_barcode_suffix", True)
+    analysis = PARAMS.get("isoquant_analysis", "quantification")
+    large_output = PARAMS.get("isoquant_large_output", "none")
+    umi_threads = PARAMS.get("isoquant_umi_threads", 1)
+    process_threads = PARAMS.get("isoquant_process_threads", 1)
+    resume = PARAMS.get("isoquant_resume", False)
 
     strip_opt = "--strip_barcode_suffix" if strip_suffix else ""
 
-    statement = """
-        %(binary)s
-        --reference %(fasta)s
-        --genedb %(gtf)s
-        --complete_genedb
-        --bam %(infile)s
-        --data_type nanopore
-        --mode %(mode)s
-        --barcoded_bam
-        --barcode_tag %(barcode_tag)s
-        --umi_tag %(umi_tag)s
-        %(strip_opt)s
-        --count_exons
-        --counts_format mtx
-        -o %(outdir)s
-        -p %(sample)s
-        -t %(job_threads)s
-        && touch %(outfile)s
-    """
+    if resume:
+        statement = """
+            %(binary)s
+            --resume
+            --output %(outdir)s
+            --threads %(job_threads)s
+            && touch %(outfile)s
+        """
+    else:
+        statement = """
+            %(binary)s
+            --reference %(fasta)s
+            --genedb %(gtf)s
+            --complete_genedb
+            --bam %(infile)s
+            --data_type nanopore
+            --mode %(mode)s
+            --barcoded_bam
+            --barcode_tag %(barcode_tag)s
+            --umi_tag %(umi_tag)s
+            %(strip_opt)s
+            --analysis %(analysis)s
+            --counts_format mtx
+            --large_output %(large_output)s
+            --threads %(job_threads)s
+            --umi_threads %(umi_threads)s
+            --process_threads %(process_threads)s
+            --output %(outdir)s
+            --prefix %(sample)s
+            && touch %(outfile)s
+        """
 
     P.run(statement)
 
@@ -466,6 +500,10 @@ def run_flames(infile, outfile):
     """
     Run FLAMES for single-cell transcript discovery and quantification.
 
+    Opt-in only: set flames.run: true and ``make flames``. Prefer IsoQuant
+    (default in ``make full`` / ``make quantify``) for high cell-count
+    libraries — FLAMES can OOM on large nuclei samples.
+
     FLAMES 2.x runs end-to-end from FASTQ (it performs its own barcode
     demultiplexing and minimap2 alignment internally - it does not accept
     pre-aligned BAMs). One FLAMES run is performed per input sample.
@@ -478,11 +516,19 @@ def run_flames(infile, outfile):
     - Transcript- and gene-level quantification
 
     Parameters from pipeline.yml:
+        flames_run: must be true to execute
         flames_gtf: annotation GTF file
         flames_fasta: reference genome fasta
         flames_min_support_reads / flames_do_discovery
         blaze_expect_cells: expected number of cells
     """
+
+    if not PARAMS.get("flames_run", False):
+        raise ValueError(
+            "flames_run is false. Set flames.run: true in pipeline.yml "
+            "and run ``make flames``. For high cell counts prefer IsoQuant "
+            "(included in ``make full`` / ``make quantify``)."
+        )
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
@@ -620,26 +666,25 @@ def count_genes(infile, outfile):
 def count_velocity(infile, outfile):
     """
     Generate SEPARATE spliced and unspliced count matrices for RNA velocity.
-    
-    Unlike combined_counts which sums spliced + unspliced, this step keeps
-    them separate for use with scVelo or velocyto for trajectory analysis.
-    
-    Uses exon/intron annotations to classify reads:
-    - Spliced: reads with splice junctions (N in CIGAR) overlapping exons
-    - Unspliced: reads without splice junctions OR overlapping introns
-    
-    Output: RDS file with spliced, unspliced, and ambiguous matrices
 
-    Note: the IsoQuant route (build_splice_matrices) provides an alternative
-    spliced/unspliced product derived from UMI-deduplicated molecule
-    assignments and is the recommended source for downstream velocity analysis.
-    This task is retained for compatibility.
+    Opt-in only: set velocity.run: true and ``make velocity``. Prefer
+    IsoQuant ``build_splice_matrices`` (included in ``make full``) — that
+    path is UMI-deduplicated and does not load the full BAM into R.
+
+    This legacy script uses scanBam() and OOMs on large nuclei libraries.
     """
+
+    if not PARAMS.get("velocity_run", False):
+        raise ValueError(
+            "velocity_run is false. Set velocity.run: true in pipeline.yml "
+            "and run ``make velocity``. Prefer IsoQuant splice matrices "
+            "(``make full`` / ``make quantify``) for high cell counts."
+        )
 
     R_SRC_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "R"))
 
     gtf = PARAMS["velocity_gtf"]
-    job_memory = PARAMS.get("velocity_memory", "32G")
+    job_memory = PARAMS.get("velocity_memory", "64G")
 
     statement = """
         Rscript %(R_SRC_PATH)s/velocity_counts.R
@@ -800,6 +845,384 @@ def generate_isoquant_report(infile, outfile):
 
 
 # -----------------------------------------------
+# Fusion calling (ctat-LR-fusion, containerised)
+# -----------------------------------------------
+
+@follows(mkdir("fusions"))
+@transform(tag_bam_with_barcodes,
+           regex(r"tagged/(\S+)\.tagged\.bam"),
+           r"fusions/\1/ctat-LR-fusion.fusion_predictions.tsv")
+def find_fusions(infile, outfile):
+    """
+    Run ctat-LR-fusion on the tagged BAM (wf-single-cell ``find_fusions``).
+
+    Requires fusion_call_fusions: true in pipeline.yml and a CTAT resource
+    directory matching genome_fasta / annotation. Executed via a configurable
+    container prefix (fusion_run_prefix).
+    """
+    if not PARAMS.get("fusion_call_fusions", False):
+        raise ValueError(
+            "fusion_call_fusions is false. Set fusion.call_fusions: true "
+            "in pipeline.yml and run ``make fusions``."
+        )
+
+    sample = os.path.basename(infile).replace(".tagged.bam", "")
+    ctat_outdir = os.path.dirname(outfile)
+    ctat_dir = os.path.join(ctat_outdir, "ctat_out")
+    tar_out = os.path.join(ctat_outdir, "{}.ctat-LR-fusion.tar.gz".format(sample))
+    resource_dir = PARAMS.get("fusion_ctat_resource_dir", "")
+    if not resource_dir or not os.path.isdir(resource_dir):
+        raise ValueError(
+            "fusion_ctat_resource_dir must point to a ctat-LR-fusion "
+            "genome_lib_dir: {}".format(resource_dir)
+        )
+
+    run_prefix = PARAMS.get(
+        "fusion_run_prefix",
+        "singularity exec --bind $PWD /path/to/ctat_lr_fusion.sif",
+    )
+    threads = max(2, PARAMS.get("fusion_threads", 8) - 2)
+    job_memory = PARAMS.get("fusion_memory", "16G")
+    fusion_preds = os.path.join(ctat_dir, "ctat-LR-fusion.fusion_predictions.tsv")
+
+    statement = """
+        rm -rf %(ctat_dir)s
+        && mkdir -p %(ctat_dir)s
+        && %(run_prefix)s ctat-LR-fusion
+        --LR_bam %(infile)s
+        --genome_lib_dir %(resource_dir)s
+        --CPU %(threads)s
+        --vis
+        --output %(ctat_dir)s
+        && if [ ! -f %(fusion_preds)s ]; then
+            touch %(fusion_preds)s;
+           fi
+        && cp %(fusion_preds)s %(outfile)s
+        && tar -czf %(tar_out)s -C %(ctat_outdir)s ctat_out
+    """
+
+    P.run(statement)
+
+
+@transform(find_fusions,
+           regex(r"fusions/(\S+)/ctat-LR-fusion\.fusion_predictions\.tsv"),
+           r"fusions/\1.ctat-LR-fusion.fusion_predictions_per-read.tsv")
+def format_fusions(infile, outfile):
+    """
+    Join ctat-LR-fusion predictions to cell barcodes from the tagged BAM.
+
+    Writes per-read and per-fusion summary tables (wf ``format_ctat_output``).
+    """
+    if not PARAMS.get("fusion_call_fusions", False):
+        raise ValueError("fusion_call_fusions is false.")
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+
+    sample = infile.split("/")[1]
+    tagged_bam = "tagged/{}.tagged.bam".format(sample)
+    out_fusion = outfile.replace("_per-read.tsv", "_per-fusion.tsv")
+    job_memory = PARAMS.get("fusion_memory", "4G")
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/ctat_fusion_format.py
+        --predictions %(infile)s
+        --bam %(tagged_bam)s
+        --sample %(sample)s
+        --out-read %(outfile)s
+        --out-fusion %(out_fusion)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
+# Targeted translocation scanning (split-mm port, single-cell)
+# -----------------------------------------------
+
+@follows(mkdir("targeted_fusions"))
+@transform(subset_cells,
+           regex(r"tagged_cells/(\S+)\.cells\.bam"),
+           r"targeted_fusions/\1.targeted_fusion.per_cell.tsv")
+def targeted_fusion_scan(infile, outfile):
+    """
+    Scan barcode-tagged BAM for reads supporting whitelist translocation pairs.
+
+    Uses genomic window pairs (exact + padded broad windows) and aggregates
+    supporting reads and UMIs per cell barcode. Writes per-target summary,
+    per-cell long table, cell x translocation matrices, and per-read evidence.
+
+    Requires targeted_fusion_run: true in pipeline.yml.
+    """
+    if not PARAMS.get("targeted_fusion_run", False):
+        raise ValueError(
+            "targeted_fusion_run is false. Set targeted_fusion.run: true "
+            "in pipeline.yml and run ``make targeted_fusions``."
+        )
+
+    sample = os.path.basename(infile).replace(".cells.bam", "")
+    whitelist = PARAMS.get("targeted_fusion_whitelist", "")
+    if not whitelist or not os.path.isfile(whitelist):
+        raise ValueError(
+            "targeted_fusion_whitelist must point to an existing TSV file: "
+            "{}".format(whitelist)
+        )
+
+    bam_source = PARAMS.get("targeted_fusion_bam_source", "cells")
+    if bam_source == "all":
+        bam = "tagged/{}.tagged.bam".format(sample)
+    else:
+        bam = infile
+
+    if not os.path.isfile(bam):
+        raise ValueError("BAM not found for targeted fusion scan: {}".format(bam))
+
+    outdir = os.path.dirname(outfile) or "targeted_fusions"
+    job_memory = PARAMS.get("targeted_fusion_memory", "8G")
+    window_size = PARAMS.get("targeted_fusion_window_size", 1000000)
+    padding_units = PARAMS.get("targeted_fusion_padding_units", "windows")
+    min_mapq = PARAMS.get("targeted_fusion_min_mapq", 20)
+    matrix_window = PARAMS.get("targeted_fusion_matrix_window", "exact")
+    keep_secondary = PARAMS.get("targeted_fusion_keep_secondary", False)
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+
+    keep_secondary_flag = " --keep-secondary" if keep_secondary else ""
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/sc_fusion_windows.py
+        --bam %(bam)s
+        --whitelist %(whitelist)s
+        --sample %(sample)s
+        --outdir %(outdir)s
+        --out-prefix %(sample)s
+        --window-size %(window_size)s
+        --padding-units %(padding_units)s
+        --min-mapq %(min_mapq)s
+        --matrix-window %(matrix_window)s
+        %(keep_secondary_flag)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
+# Per-cell SNV calling (longshot, wf-single-cell port)
+# -----------------------------------------------
+
+@follows(mkdir("snv"))
+@transform(PARAMS["genome_fasta"],
+           regex(r"(.*)"),
+           r"snv/ref.dict")
+def snv_genome_prep(infile, outfile):
+    """
+    Index reference FASTA and build GATK sequence dictionary for SNV calling.
+    """
+    if not PARAMS.get("snv_call_variants", False):
+        with open(outfile, "w") as fh:
+            fh.write("skipped\n")
+        return
+
+    ref_link = os.path.join(os.path.dirname(outfile), "ref.fa")
+    job_memory = PARAMS.get("snv_memory", "4G")
+
+    statement = """
+        ln -sf $(realpath %(infile)s) %(ref_link)s
+        && samtools faidx %(ref_link)s
+        && gatk CreateSequenceDictionary --REFERENCE %(ref_link)s --OUTPUT %(outfile)s
+    """
+
+    P.run(statement)
+
+
+@follows(snv_genome_prep)
+@transform(subset_cells,
+           regex(r"tagged_cells/(\S+)\.cells\.bam"),
+           r"snv/\1/per_cell_bams/.sentinel")
+def snv_split_cells(infile, outfile):
+    """
+    Split cell-subset BAM by CB tag (``samtools split -d CB``).
+    """
+    if not PARAMS.get("snv_call_variants", False):
+        open(outfile, "w").write("skipped\n")
+        return
+
+    sample_dir = os.path.dirname(outfile)
+    per_cell = os.path.join(sample_dir, "per_cell_bams")
+    job_threads = PARAMS.get("snv_threads", 8)
+    job_memory = PARAMS.get("snv_memory", "32G")
+
+    statement = """
+        ulimit -n 20000
+        && rm -rf %(per_cell)s
+        && mkdir -p %(per_cell)s
+        && samtools split --max-split 20000
+        -d CB
+        --threads %(job_threads)s
+        -f '%(per_cell)s/%%!.bam'
+        --no-PG
+        %(infile)s
+        && samtools index -@ %(job_threads)s -M %(per_cell)s/*.bam
+        && touch %(outfile)s
+    """
+
+    P.run(statement)
+
+
+@transform(snv_split_cells,
+           regex(r"snv/(\S+)/per_cell_bams/\.sentinel"),
+           r"snv/\1/call1.sentinel")
+def snv_call1(infile, outfile):
+    """Round-1 per-cell longshot (dedup, SplitNCigarReads, discovery)."""
+    if not PARAMS.get("snv_call_variants", False):
+        open(outfile, "w").write("skipped\n")
+        return
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+    sample_dir = os.path.dirname(os.path.dirname(infile))
+    ref_fa = "snv/ref.fa"
+    job_threads = PARAMS.get("snv_threads", 8)
+    job_memory = PARAMS.get("snv_memory", "32G")
+    snv_call1_min_alt_count = PARAMS.get("snv_call1_min_alt_count", 1)
+    snv_call1_min_cov = PARAMS.get("snv_call1_min_cov", 1)
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/longshot_sc.py call1
+        --sample-dir %(sample_dir)s
+        --ref %(ref_fa)s
+        --threads %(job_threads)s
+        --min-alt-count %(snv_call1_min_alt_count)s
+        --min-cov %(snv_call1_min_cov)s
+        && touch %(outfile)s
+    """
+
+    P.run(statement)
+
+
+@transform(snv_call1,
+           regex(r"snv/(\S+)/call1\.sentinel"),
+           r"snv/\1/bulk_merged.vcf.gz")
+def snv_bulk(infile, outfile):
+    """Bulk longshot on merged exon-split BAMs (per contig)."""
+    if not PARAMS.get("snv_call_variants", False):
+        open(outfile, "w").write("skipped\n")
+        return
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+    sample_dir = os.path.dirname(infile)
+    ref_fa = "snv/ref.fa"
+    job_memory = PARAMS.get("snv_memory", "32G")
+    snv_bulk_min_alt_count = PARAMS.get("snv_bulk_min_alt_count", 2)
+    snv_bulk_min_cov = PARAMS.get("snv_bulk_min_cov", 2)
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/longshot_sc.py bulk
+        --sample-dir %(sample_dir)s
+        --ref %(ref_fa)s
+        --min-alt-count %(snv_bulk_min_alt_count)s
+        --min-cov %(snv_bulk_min_cov)s
+    """
+
+    P.run(statement)
+
+
+@transform(snv_bulk,
+           regex(r"snv/(\S+)/bulk_merged\.vcf\.gz"),
+           r"snv/\1/candidates.vcf.gz")
+def snv_merge_candidates(infile, outfile):
+    """Merge bulk + round-1 cell VCFs into candidate sites."""
+    if not PARAMS.get("snv_call_variants", False):
+        open(outfile, "w").write("skipped\n")
+        return
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+    sample_dir = os.path.dirname(infile)
+    merge_threads = PARAMS.get("snv_merge_threads", 8)
+    job_memory = PARAMS.get("snv_memory", "16G")
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/longshot_sc.py merge_candidates
+        --sample-dir %(sample_dir)s
+        --merge-threads %(merge_threads)s
+    """
+
+    P.run(statement)
+
+
+@transform(snv_merge_candidates,
+           regex(r"snv/(\S+)/candidates\.vcf\.gz"),
+           r"snv/\1/genotype2.sentinel")
+def snv_genotype2(infile, outfile):
+    """Round-2 per-cell genotyping at merged candidate sites."""
+    if not PARAMS.get("snv_call_variants", False):
+        open(outfile, "w").write("skipped\n")
+        return
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+    sample_dir = os.path.dirname(infile)
+    ref_fa = "snv/ref.fa"
+    ref_fai = "snv/ref.fa.fai"
+    job_threads = PARAMS.get("snv_threads", 8)
+    job_memory = PARAMS.get("snv_memory", "32G")
+    snv_depth_target = PARAMS.get("snv_depth_target", 200)
+    snv_genotype2_min_alt_count = PARAMS.get("snv_genotype2_min_alt_count", 1)
+    snv_genotype2_min_cov = PARAMS.get("snv_genotype2_min_cov", 1)
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/longshot_sc.py genotype2
+        --sample-dir %(sample_dir)s
+        --ref %(ref_fa)s
+        --ref-fai %(ref_fai)s
+        --threads %(job_threads)s
+        --depth-target %(snv_depth_target)s
+        --min-alt-count %(snv_genotype2_min_alt_count)s
+        --min-cov %(snv_genotype2_min_cov)s
+        && touch %(outfile)s
+    """
+
+    P.run(statement)
+
+
+@transform(snv_genotype2,
+           regex(r"snv/(\S+)/genotype2\.sentinel"),
+           r"snv/\1/\1.final_merged.vcf.gz")
+def snv_merge_matrix(infile, outfile):
+    """
+    Merge round-2 cell VCFs and build sparse genotype MEX matrix.
+
+    Outputs ``snv/{sample}/{sample}.final_merged.vcf.gz`` and
+    ``snv/{sample}/{sample}.genotype_matrix/`` (0=hom ref, 1=het, 2=hom alt).
+    """
+    if not PARAMS.get("snv_call_variants", False):
+        open(outfile, "w").write("skipped\n")
+        return
+
+    PYTHON_SRC_PATH = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "python"))
+    sample = os.path.basename(os.path.dirname(infile))
+    sample_dir = os.path.dirname(infile)
+    merge_threads = PARAMS.get("snv_merge_threads", 8)
+    report_variants = PARAMS.get("snv_report_variants", "")
+    rv_flag = "--report-variants {}".format(report_variants) if report_variants else ""
+    job_memory = PARAMS.get("snv_memory", "32G")
+
+    statement = """
+        python %(PYTHON_SRC_PATH)s/longshot_sc.py merge_matrix
+        --sample-dir %(sample_dir)s
+        --sample %(sample)s
+        --merge-threads %(merge_threads)s
+        %(rv_flag)s
+    """
+
+    P.run(statement)
+
+
+# -----------------------------------------------
 # QC: NanoPlot
 # -----------------------------------------------
 
@@ -810,19 +1233,34 @@ def generate_isoquant_report(infile, outfile):
 def qc_nanoplot(infile, outfile):
     """
     Run NanoPlot on aligned BAM files for long-read QC metrics.
+
+    Large nuclei BAMs often OOM NanoPlot's process pool (BrokenProcessPool /
+    signal -1). Defaults enable --huge and request more memory; lower
+    nanoplot.threads or set nanoplot.downsample if it still fails.
     """
 
     outdir = os.path.dirname(outfile)
 
-    job_threads = PARAMS.get("nanoplot_threads", 4)
-    job_memory = PARAMS.get("nanoplot_memory", "8G")
+    job_threads = PARAMS.get("nanoplot_threads", 2)
+    job_memory = PARAMS.get("nanoplot_memory", "32G")
+    huge = PARAMS.get("nanoplot_huge", True)
+    downsample = PARAMS.get("nanoplot_downsample", None)
+    extra = PARAMS.get("nanoplot_options", "")
+
+    huge_opt = "--huge" if huge else ""
+    downsample_opt = ""
+    if downsample:
+        downsample_opt = "--downsample %s" % downsample
 
     statement = """
-        NanoPlot --bam %(infile)s 
-        -o %(outdir)s 
-        --tsv_stats 
-        --plots dot 
+        NanoPlot --bam %(infile)s
+        -o %(outdir)s
+        --tsv_stats
+        --plots dot
         -t %(job_threads)s
+        %(huge_opt)s
+        %(downsample_opt)s
+        %(extra)s
     """
 
     P.run(statement)
@@ -879,19 +1317,17 @@ def multiqc(infiles, outfile):
 # Pipeline targets
 # -----------------------------------------------
 
-@follows(run_flames, count_genes, count_velocity, multiqc,
+@follows(count_genes, multiqc,
          quantify_isoquant, build_splice_matrices, qc_splice_proportion,
          generate_isoquant_report)
 def full():
     """
-    Run the complete pipeline including alignment, FLAMES quantification,
-    IsoQuant transcript quantification (concurrent with FLAMES), gene counts,
-    velocity matrices, and all QC.
+    Run the complete pipeline: alignment, IsoQuant discovery/quantification,
+    gene counts, spliced/unspliced matrices, and QC.
 
-    FLAMES runs from FASTQ for novel isoform discovery and its own
-    quantification. IsoQuant runs from the tagged BAM for UMI-deduplicated
-    transcript and spliced/unspliced gene matrices. Both are scheduled
-    concurrently by ruffus as they are independent of each other.
+    IsoQuant (from tagged BAM) is the default transcript discovery and
+    velocity-matrix route. FLAMES and legacy R velocity counting are opt-in
+    (``make flames`` / ``make velocity``).
     """
     pass
 
@@ -907,20 +1343,35 @@ def align():
 @follows(run_flames)
 def flames():
     """
-    Run FLAMES transcript analysis only (requires tagged BAMs).
+    Opt-in FLAMES transcript analysis from FASTQ (set flames.run: true).
+
+    Prefer for smaller samples; use IsoQuant (``make full`` / ``make quantify``)
+    for high cell-count libraries.
     """
     pass
 
 
-@follows(run_flames, count_genes, count_velocity,
+@follows(count_genes,
          quantify_isoquant, build_splice_matrices, qc_splice_proportion)
 def quantify():
     """
-    Run quantification only (requires aligned FASTQ/BAMs upstream).
+    Run quantification only (requires aligned BAMs upstream).
 
-    Runs both FLAMES (from FASTQ, novel isoform discovery) and IsoQuant
-    (from the tagged BAM, UMI-deduplicated spliced/unspliced matrices)
-    concurrently, plus featureCounts gene counts and velocity matrices.
+    IsoQuant from the tagged BAM (UMI-deduplicated spliced/unspliced matrices
+    and isoform discovery), plus featureCounts gene counts. FLAMES and
+    legacy R velocity counting are not included; use ``make flames`` /
+    ``make velocity`` separately if needed.
+    """
+    pass
+
+
+@follows(count_velocity)
+def velocity():
+    """
+    Opt-in legacy R velocity counting (set velocity.run: true).
+
+    Prefer IsoQuant splice matrices from ``make full`` / ``make quantify``;
+    this path loads the full BAM into memory and can OOM on large samples.
     """
     pass
 
@@ -937,6 +1388,37 @@ def qc():
 def isoquant_report():
     """
     Generate IsoQuant QC HTML reports only (requires splice matrices upstream).
+    """
+    pass
+
+
+@follows(format_fusions)
+def fusions():
+    """
+    Run ctat-LR-fusion fusion calling on tagged BAMs.
+
+    Requires fusion.call_fusions: true in pipeline.yml.
+    """
+    pass
+
+
+@follows(targeted_fusion_scan)
+def targeted_fusions():
+    """
+    Scan tagged BAMs for whitelist translocation pairs per cell.
+
+    Requires targeted_fusion.run: true in pipeline.yml.
+    """
+    pass
+
+
+@follows(snv_merge_matrix)
+def variants():
+    """
+    Run per-cell longshot SNV calling and build genotype matrix.
+
+    Requires snv.call_variants: true in pipeline.yml. Computationally
+    intensive (~24h/64 cores for ~1500 cells per wf-single-cell).
     """
     pass
 

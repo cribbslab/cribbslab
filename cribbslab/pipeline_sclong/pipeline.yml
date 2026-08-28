@@ -102,20 +102,25 @@ minimap2:
     sort_memory: 1G
 
 # -----------------------------------------------
-# FLAMES settings (transcript discovery and quantification)
+# FLAMES settings (optional; smaller samples only)
 # -----------------------------------------------
+# Opt-in: set run: true and ``make flames``. Not part of ``make full``.
+# Prefer IsoQuant for high cell-count libraries — FLAMES often OOMs there.
 
 flames:
+    # Must be true to run ``make flames``
+    run: false
+
     # Path to annotation GTF file
     gtf: /path/to/gencode.v46.annotation.gtf.gz
 
     # Path to reference genome fasta (same as genome_fasta)
     fasta: /path/to/GRCh38.p14.genome.fa
 
-    # Number of threads for parallel processing
-    threads: 8
+    # Number of threads for parallel processing (lower if memory-limited)
+    threads: 4
 
-    # Memory per job (FLAMES can be memory intensive)
+    # Memory per job (FLAMES can exceed 40G RSS on large nuclei samples)
     memory: 64G
 
     # Minimum number of reads to support a transcript
@@ -151,59 +156,83 @@ combined:
     memory: 32G
 
 # -----------------------------------------------
-# RNA velocity settings (separate spliced/unspliced)
+# Legacy R velocity counting (optional)
 # -----------------------------------------------
-
-# These settings generate SEPARATE spliced and unspliced matrices
-# for use with scVelo or velocyto trajectory analysis.
+# Opt-in: set run: true and ``make velocity``. Not part of ``make full``.
+# Prefer IsoQuant splice_matrices/ (UMI-deduplicated, scales better).
+# velocity_counts.R uses scanBam() and often OOMs on large nuclei BAMs.
 
 velocity:
+    # Must be true to run ``make velocity``
+    run: false
+
     # GTF file (should include intron annotations for velocity)
     gtf: /path/to/gencode.v46.annotation.gtf.gz
 
-    # Memory for velocity counting
-    memory: 32G
+    # Memory for velocity counting (raise further if you opt in on large BAMs)
+    memory: 64G
 
 # -----------------------------------------------
 # QC settings
 # -----------------------------------------------
 
 nanoplot:
-    # Number of threads
-    threads: 4
+    # Keep low: for a single BAM, high thread counts inflate peak RAM
+    # and often trigger BrokenProcessPool (OOM-killed workers).
+    threads: 2
 
-    # Memory per job
-    memory: 8G
+    # Memory per job (8G is too small for large nuclei BAMs)
+    memory: 32G
+
+    # Pass NanoPlot --huge (streaming mode for very large inputs)
+    huge: true
+
+    # Optional: cap reads used for plots/stats (e.g. 100000). Leave empty
+    # / null to use all reads.
+    downsample: null
+
+    # Extra NanoPlot flags if needed
+    options: ''
 
 # -----------------------------------------------
 # BAM tagging settings
 # -----------------------------------------------
 
 tag:
-    # Memory for BAM tagging
-    memory: 16G
+    # Threads for BLAZE step-3 read→whitelist assignment (CPU-bound).
+    # This is usually the slow part of tagging; raise if CPUs are free.
+    threads: 8
+
+    # Memory for BAM tagging (awk holds the full assignment map in RAM)
+    memory: 32G
 
 # -----------------------------------------------
-# IsoQuant settings (transcript quantification from tagged BAM)
+# IsoQuant settings (single-cell quantification)
 # -----------------------------------------------
 
-# IsoQuant runs alongside FLAMES as a concurrent quantification route.
-# It consumes the tagged genome BAM directly (CB/UB tags from BLAZE) and
-# performs UMI-based deduplication natively in single-cell mode.
+# Primary transcript route for ``make full`` / ``make quantify``.
+# Consumes the tagged genome BAM (CB/UB from BLAZE) and runs IsoQuant in
+# single-cell mode with UMI deduplication.
+#
+# Defaults match a memory-conscious quantification-only run:
+#   --analysis quantification
+#   --large_output none
+#   --umi_threads 1
+#   --process_threads 1
+#
+# For splice-matrix building (build_splice_matrices) set large_output to
+# read_assignments so isoquant_matrices.py can label spliced/unspliced reads.
+#
+# After an OOM/interrupted run, set resume: true and rerun make quantify.
+# Only --output and --threads may change on resume.
 #
 # Note: IsoQuant single-cell UMI deduplication is believed to be
 # edit-distance aware (Levenshtein ED3 for tenX_v3). This has not been
-# verified against all installed versions; confirm before relying on it
-# for low-UMI-diversity libraries.
-#
-# TODO: confirm whether the installed IsoQuant's UMI deduplication is
-# truly edit-distance aware. ONT UMI error means exact-match-only dedup
-# would inflate counts. The pre_collapse hook below (currently disabled)
-# is reserved for a future upstream correction step if needed.
+# verified against all installed versions.
 
 isoquant:
     # Path or name of the IsoQuant executable
-    binary: isoquant.py
+    binary: isoquant
 
     # Single-cell mode. Controls UMI edit-distance deduplication threshold.
     # IsoQuant has no dedicated 10x 5' gene expression mode, but because
@@ -224,11 +253,26 @@ isoquant:
     # Path to annotation GTF file (used for --genedb)
     gtf: /path/to/gencode.v46.annotation.gtf.gz
 
-    # Number of threads
-    threads: 8
+    # IsoQuant --threads (parallel chromosome processing)
+    threads: 4
 
-    # Memory per job
+    # IsoQuant --umi_threads and --process_threads (lower = less peak RAM)
+    umi_threads: 1
+    process_threads: 1
+
+    # Memory per job (scheduler hint)
     memory: 64G
+
+    # IsoQuant --analysis: quantification (reference only) or model_construction
+    analysis: quantification
+
+    # IsoQuant --large_output: none | read_info | read_assignments | allinfo | ...
+    # read_info is required for spliced/unspliced AnnData layers. Use none only
+    # for count-matrix-only runs (isoquant_matrices falls back to totals).
+    large_output: read_info
+
+    # Continue an interrupted run (only --output and --threads may change)
+    resume: false
 
     # BAM tag carrying the cell barcode (must match tag written by tag_bam_barcodes.R)
     barcode_tag: CB
@@ -277,6 +321,85 @@ isoquant_report:
 
     # Write config.yaml alongside report.html for interactive Streamlit use
     write_config: true
+
+# -----------------------------------------------
+# Fusion calling (ctat-LR-fusion, containerised)
+# -----------------------------------------------
+# Opt-in: set call_fusions: true and run ``make fusions``.
+# Requires a CTAT resource directory built against the same reference as
+# genome_fasta / isoquant_gtf. Prebuilt bundles:
+#   https://data.broadinstitute.org/Trinity/CTAT_RESOURCE_LIB/
+
+fusion:
+    call_fusions: false
+
+    # Path to ctat-LR-fusion genome_lib_dir (must match reference annotation)
+    ctat_resource_dir: /path/to/ctat_genome_lib
+
+    # Container invocation prefix (Singularity example). Adjust image path.
+    run_prefix: singularity exec --bind $PWD /path/to/ctat_lr_fusion.sif
+
+    threads: 8
+    memory: 16G
+
+# -----------------------------------------------
+# Targeted translocation scanning (split-mm port, single-cell)
+# -----------------------------------------------
+# Opt-in: set run: true and run ``make targeted_fusions``.
+# Scans barcode-tagged BAM for reads supporting whitelist chromosome-pair
+# windows and writes per-cell support tables and cell x translocation matrices.
+
+targeted_fusion:
+    run: false
+
+    # TSV whitelist of translocation pairs (see pipeline_sclong/fusion_whitelist.tsv)
+    whitelist: /path/to/fusion_whitelist.tsv
+
+    # BAM source: cells = tagged_cells (true cells only); all = full tagged BAM
+    bam_source: cells
+
+    # Default window size for rows without per-row window_size (bp)
+    window_size: 1000000
+
+    # How pad_left / pad_right are interpreted: windows | bp
+    padding_units: windows
+
+    min_mapq: 20
+    keep_secondary: false
+
+    # Which window tier feeds the wide matrix outputs: exact | broad
+    matrix_window: exact
+
+    memory: 8G
+
+# -----------------------------------------------
+# Per-cell SNV calling (longshot, wf-single-cell port)
+# -----------------------------------------------
+# Opt-in: set call_variants: true and run ``make variants``.
+# Heavy: wf-single-cell reports ~24h on 64 cores for ~1500 cells.
+
+snv:
+    call_variants: false
+
+    threads: 8
+    merge_threads: 8
+    memory: 32G
+
+    # Round-1 longshot thresholds (per-cell discovery)
+    call1_min_alt_count: 1
+    call1_min_cov: 1
+
+    # Bulk longshot thresholds
+    bulk_min_alt_count: 2
+    bulk_min_cov: 2
+
+    # Round-2 genotyping
+    genotype2_min_alt_count: 1
+    genotype2_min_cov: 1
+    depth_target: 200
+
+    # Optional VCF of variants of interest for genotype matrix filtering
+    report_variants: ''
 
 # -----------------------------------------------
 # Cluster settings (for HPC environments)
